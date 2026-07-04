@@ -101,66 +101,95 @@ public class NavidromeApiClient : INavidromeApiClient
         NavidromeLibrary library,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        // first pass: page through all albums in the music folder to learn the
-        // full album list and total song count
-        var albums = new List<SubsonicAlbum>();
+        // the subsonic api reports tag-derived virtual paths, so we use
+        // navidrome's native rest api which exposes real filesystem paths
+        string token = await GetNativeToken(connectionParameters, cancellationToken);
+
+        HttpClient client = _httpClientFactory.CreateClient();
+        client.BaseAddress = new Uri(connectionParameters.Address);
+        client.DefaultRequestHeaders.Add("x-nd-authorization", $"Bearer {token}");
+
+        const int PageSize = 500;
         var offset = 0;
+        var totalSongCount = -1;
+
         while (true)
         {
-            SubsonicResponse response = await GetSubsonicResponse(
-                connectionParameters,
-                "getAlbumList2",
-                new Dictionary<string, string>
+            string url =
+                $"/api/song?_start={offset}&_end={offset + PageSize}&_sort=title&library_id={Uri.EscapeDataString(library.ItemId ?? string.Empty)}";
+
+            using HttpResponseMessage response = await client.GetAsync(url, cancellationToken);
+            response.EnsureSuccessStatusCode();
+
+            if (totalSongCount < 0 &&
+                response.Headers.TryGetValues("x-total-count", out IEnumerable<string> counts) &&
+                int.TryParse(counts.FirstOrDefault(), out int parsedCount))
+            {
+                totalSongCount = parsedCount;
+            }
+
+            await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            List<NavidromeNativeSong> page = await JsonSerializer.DeserializeAsync<List<NavidromeNativeSong>>(
+                stream,
+                JsonOptions,
+                cancellationToken) ?? [];
+
+            if (totalSongCount < 0)
+            {
+                totalSongCount = page.Count;
+            }
+
+            foreach (NavidromeNativeSong song in page)
+            {
+                // tolerate servers that ignore the library filter
+                if (!string.IsNullOrEmpty(song.LibraryId) &&
+                    !string.IsNullOrEmpty(library.ItemId) &&
+                    song.LibraryId != library.ItemId)
                 {
-                    ["type"] = "alphabeticalByName",
-                    ["size"] = AlbumPageSize.ToString(CultureInfo.InvariantCulture),
-                    ["offset"] = offset.ToString(CultureInfo.InvariantCulture),
-                    ["musicFolderId"] = library.ItemId
-                },
-                cancellationToken);
+                    continue;
+                }
 
-            List<SubsonicAlbum> page = Optional(response.AlbumList2)
-                .Map(al => al.Album)
-                .Flatten()
-                .ToList();
+                foreach (NavidromeSong navidromeSong in ProjectToSong(song))
+                {
+                    yield return Tuple(navidromeSong, Math.Max(totalSongCount, 1));
+                }
+            }
 
-            albums.AddRange(page);
-
-            if (page.Count < AlbumPageSize)
+            if (page.Count < PageSize)
             {
                 break;
             }
 
-            offset += AlbumPageSize;
-        }
-
-        int totalSongCount = albums.Sum(a => a.SongCount);
-
-        // second pass: fetch songs for each album
-        foreach (SubsonicAlbum albumStub in albums)
-        {
-            SubsonicResponse response = await GetSubsonicResponse(
-                connectionParameters,
-                "getAlbum",
-                new Dictionary<string, string> { ["id"] = albumStub.Id },
-                cancellationToken);
-
-            List<SubsonicSong> songs = Optional(response.Album)
-                .Map(a => a.Song)
-                .Flatten()
-                .ToList();
-
-            foreach (SubsonicSong song in songs)
-            {
-                foreach (NavidromeSong navidromeSong in ProjectToSong(song))
-                {
-                    yield return Tuple(navidromeSong, totalSongCount);
-                }
-            }
+            offset += PageSize;
         }
     }
 
-    private Option<NavidromeSong> ProjectToSong(SubsonicSong item)
+    private async Task<string> GetNativeToken(
+        NavidromeConnectionParameters connectionParameters,
+        CancellationToken cancellationToken)
+    {
+        HttpClient client = _httpClientFactory.CreateClient();
+        client.BaseAddress = new Uri(connectionParameters.Address);
+
+        using var content = new StringContent(
+            JsonSerializer.Serialize(
+                new { username = connectionParameters.Username, password = connectionParameters.Password }),
+            Encoding.UTF8,
+            "application/json");
+
+        using HttpResponseMessage response = await client.PostAsync("/auth/login", content, cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        NavidromeLoginResponse login = await JsonSerializer.DeserializeAsync<NavidromeLoginResponse>(
+            stream,
+            JsonOptions,
+            cancellationToken);
+
+        return login?.Token ?? throw new InvalidOperationException("Navidrome native login failed");
+    }
+
+    private Option<NavidromeSong> ProjectToSong(NavidromeNativeSong item)
     {
         try
         {
@@ -192,7 +221,8 @@ public class NavidromeApiClient : INavidromeApiClient
                     {
                         Index = 0,
                         MediaStreamKind = MediaStreamKind.Audio,
-                        Codec = (item.Suffix ?? string.Empty).ToLowerInvariant(),
+                        Codec = (item.Suffix ?? System.IO.Path.GetExtension(item.Path)?.TrimStart('.') ?? string.Empty)
+                            .ToLowerInvariant(),
                         Channels = 2,
                         Default = true
                     }
@@ -200,9 +230,23 @@ public class NavidromeApiClient : INavidromeApiClient
                 Chapters = []
             };
 
-            string albumArtist = string.IsNullOrWhiteSpace(item.DisplayAlbumArtist)
+            string albumArtist = string.IsNullOrWhiteSpace(item.AlbumArtist)
                 ? item.Artist
-                : item.DisplayAlbumArtist;
+                : item.AlbumArtist;
+
+            var genres = new List<Genre>();
+            foreach (NavidromeNativeGenre genre in Optional(item.Genres).Flatten())
+            {
+                if (!string.IsNullOrWhiteSpace(genre.Name))
+                {
+                    genres.Add(new Genre { Name = genre.Name });
+                }
+            }
+
+            if (genres.Count == 0 && !string.IsNullOrWhiteSpace(item.Genre))
+            {
+                genres.Add(new Genre { Name = item.Genre });
+            }
 
             var metadata = new SongMetadata
             {
@@ -212,13 +256,11 @@ public class NavidromeApiClient : INavidromeApiClient
                 Album = item.Album,
                 Artists = string.IsNullOrWhiteSpace(item.Artist) ? [] : [item.Artist],
                 AlbumArtists = string.IsNullOrWhiteSpace(albumArtist) ? [] : [albumArtist],
-                Track = item.Track?.ToString(CultureInfo.InvariantCulture),
+                Track = item.TrackNumber?.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 Year = item.Year,
                 DateAdded = now,
                 DateUpdated = now,
-                Genres = string.IsNullOrWhiteSpace(item.Genre)
-                    ? []
-                    : [new Genre { Name = item.Genre }],
+                Genres = genres,
                 Tags = [],
                 Studios = [],
                 Actors = [],
@@ -244,7 +286,7 @@ public class NavidromeApiClient : INavidromeApiClient
         }
     }
 
-    private static string ComputeEtag(SubsonicSong item)
+    private static string ComputeEtag(NavidromeNativeSong item)
     {
         string fingerprint = string.Join(
             '|',
@@ -252,16 +294,16 @@ public class NavidromeApiClient : INavidromeApiClient
             item.Title,
             item.Album,
             item.Artist,
-            item.DisplayAlbumArtist,
-            item.Track?.ToString(CultureInfo.InvariantCulture),
-            item.DiscNumber?.ToString(CultureInfo.InvariantCulture),
-            item.Year?.ToString(CultureInfo.InvariantCulture),
+            item.AlbumArtist,
+            item.TrackNumber?.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            item.DiscNumber?.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            item.Year?.ToString(System.Globalization.CultureInfo.InvariantCulture),
             item.Genre,
-            item.Duration?.ToString(CultureInfo.InvariantCulture),
-            item.BitRate?.ToString(CultureInfo.InvariantCulture),
+            item.Duration?.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            item.BitRate?.ToString(System.Globalization.CultureInfo.InvariantCulture),
             item.Path);
 
-        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(fingerprint));
+        byte[] hash = SHA1.HashData(Encoding.UTF8.GetBytes(fingerprint));
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 

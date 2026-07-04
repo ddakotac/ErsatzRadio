@@ -1,6 +1,7 @@
 ﻿@page "/media/libraries"
 @using ErsatzTV.Application.Emby
 @using ErsatzTV.Application.Jellyfin
+@using ErsatzTV.Application.Navidrome
 @using ErsatzTV.Application.Libraries
 @using ErsatzTV.Application.MediaSources
 @using ErsatzTV.Application.Plex
@@ -240,6 +241,10 @@
                 case EmbyLibraryViewModel:
                     await ScannerWorkerChannel.WriteAsync(new SynchronizeEmbyLibraries(library.MediaSourceId), token);
                     await ScannerWorkerChannel.WriteAsync(new ForceSynchronizeEmbyLibraryById(library.Id, deepScan), token);
+                    break;
+                case NavidromeLibraryViewModel:
+                    await ScannerWorkerChannel.WriteAsync(new SynchronizeNavidromeLibraries(library.MediaSourceId), token);
+                    await ScannerWorkerChannel.WriteAsync(new ForceSynchronizeNavidromeLibraryById(library.Id, deepScan), token);
                     break;
             }
 

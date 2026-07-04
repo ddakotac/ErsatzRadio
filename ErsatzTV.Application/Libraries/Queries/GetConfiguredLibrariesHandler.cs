@@ -28,6 +28,7 @@ public class GetConfiguredLibrariesHandler : IRequestHandler<GetConfiguredLibrar
             PlexLibrary plex => plex.ShouldSyncItems,
             JellyfinLibrary jellyfin => jellyfin.ShouldSyncItems,
             EmbyLibrary emby => emby.ShouldSyncItems,
+            NavidromeLibrary navidrome => navidrome.ShouldSyncItems,
             _ => false
         };
 }

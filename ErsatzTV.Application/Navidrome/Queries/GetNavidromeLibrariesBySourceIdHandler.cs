@@ -18,7 +18,7 @@ public class GetNavidromeLibrariesBySourceIdHandler
         List<NavidromeLibrary> libraries =
             await _mediaSourceRepository.GetNavidromeLibraries(request.NavidromeMediaSourceId);
         return libraries
-            .Map(l => new NavidromeLibraryViewModel(l.Id, l.Name, l.MediaKind, l.ShouldSyncItems))
+            .Map(l => new NavidromeLibraryViewModel(l.Id, l.Name, l.MediaKind, l.ShouldSyncItems, l.MediaSourceId))
             .ToList();
     }
 }

@@ -61,3 +61,12 @@ NEXT SESSION (session 3):
 - Blazor UI pages for Navidrome (mirror Pages/MediaSources jellyfin pages) OR proceed to audio-only channel mode first (user priority call)
 - Scheduled periodic scans (ScannerService wiring for SynchronizeNavidromeLibraryByIdIfNeeded)
 - Artwork sync from subsonic getCoverArt
+
+### Session 3 (2026-07-04): native api pivot + libraries page
+CRITICAL DISCOVERY: navidrome subsonic api reports TAG-DERIVED VIRTUAL paths (e.g. "[Unknown Album]"), not filesystem paths. Path replacement against subsonic paths can never work. Pivoted song enumeration to navidrome NATIVE rest api (/auth/login + /api/song paging with x-total-count), which exposes real absolute container paths (/music/...). Also much faster: pages all songs directly instead of one getAlbum call per album. Subsonic api still used for ping + getMusicFolders.
+- Path replacement guidance is now classic prefix mapping: NavidromePath "/music" -> LocalPath "/media/shared/Music" (user must update their existing empty-prefix replacement)
+- Etag includes path, so all songs auto-update on next scan (virtual->real path)
+- Libraries page: NavidromeLibrary now included (filter+mapper+viewmodel inherits LibraryViewModel), scan button wired via ScannerWorkerChannel
+- SynchronizeNavidromeLibraries now IScannerBackgroundServiceRequest
+NOTE: fresh-install Libraries page shows nothing until local libraries get paths - stock behavior, not a bug.
+STILL TODO session 4: media sources UI page for navidrome (add/edit/secrets/path replacements in browser), scheduled periodic scans, artwork via getCoverArt, THEN AUDIO-ONLY CHANNEL MODE.

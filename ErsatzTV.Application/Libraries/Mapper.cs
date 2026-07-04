@@ -1,4 +1,5 @@
 ﻿using ErsatzTV.Application.Emby;
+using ErsatzTV.Application.Navidrome;
 using ErsatzTV.Application.Jellyfin;
 using ErsatzTV.Core.Domain;
 
@@ -23,6 +24,12 @@ internal static class Mapper
                 j.ShouldSyncItems,
                 j.MediaSourceId),
             EmbyLibrary e => new EmbyLibraryViewModel(e.Id, e.Name, e.MediaKind, e.ShouldSyncItems, e.MediaSourceId),
+            NavidromeLibrary n => new NavidromeLibraryViewModel(
+                n.Id,
+                n.Name,
+                n.MediaKind,
+                n.ShouldSyncItems,
+                n.MediaSourceId),
             _ => throw new ArgumentOutOfRangeException(nameof(library))
         };
 
