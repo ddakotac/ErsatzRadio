@@ -1706,6 +1706,47 @@ namespace ErsatzTV.Infrastructure.Sqlite.Migrations
                     b.ToTable("MusicVideoMetadata", (string)null);
                 });
 
+            modelBuilder.Entity("ErsatzTV.Core.Domain.NavidromeConnection", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Address")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("NavidromeMediaSourceId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NavidromeMediaSourceId");
+
+                    b.ToTable("NavidromeConnection", (string)null);
+                });
+
+            modelBuilder.Entity("ErsatzTV.Core.Domain.NavidromePathReplacement", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("LocalPath")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("NavidromeMediaSourceId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("NavidromePath")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NavidromeMediaSourceId");
+
+                    b.ToTable("NavidromePathReplacement", (string)null);
+                });
+
             modelBuilder.Entity("ErsatzTV.Core.Domain.OtherVideoMetadata", b =>
                 {
                     b.Property<int>("Id")
@@ -3755,6 +3796,23 @@ namespace ErsatzTV.Infrastructure.Sqlite.Migrations
                     b.ToTable("LocalLibrary", (string)null);
                 });
 
+            modelBuilder.Entity("ErsatzTV.Core.Domain.NavidromeLibrary", b =>
+                {
+                    b.HasBaseType("ErsatzTV.Core.Domain.Library");
+
+                    b.Property<string>("ItemId")
+                        .HasMaxLength(36)
+                        .IsUnicode(false)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("ShouldSyncItems")
+                        .HasColumnType("INTEGER");
+
+                    b.HasIndex("ItemId");
+
+                    b.ToTable("NavidromeLibrary", (string)null);
+                });
+
             modelBuilder.Entity("ErsatzTV.Core.Domain.PlexLibrary", b =>
                 {
                     b.HasBaseType("ErsatzTV.Core.Domain.Library");
@@ -3924,6 +3982,16 @@ namespace ErsatzTV.Infrastructure.Sqlite.Migrations
                     b.HasBaseType("ErsatzTV.Core.Domain.MediaSource");
 
                     b.ToTable("LocalMediaSource", (string)null);
+                });
+
+            modelBuilder.Entity("ErsatzTV.Core.Domain.NavidromeMediaSource", b =>
+                {
+                    b.HasBaseType("ErsatzTV.Core.Domain.MediaSource");
+
+                    b.Property<string>("ServerName")
+                        .HasColumnType("TEXT");
+
+                    b.ToTable("NavidromeMediaSource", (string)null);
                 });
 
             modelBuilder.Entity("ErsatzTV.Core.Domain.PlexMediaSource", b =>
@@ -4185,6 +4253,25 @@ namespace ErsatzTV.Infrastructure.Sqlite.Migrations
                         .HasColumnType("TEXT");
 
                     b.ToTable("PlexShow", (string)null);
+                });
+
+            modelBuilder.Entity("ErsatzTV.Core.Domain.NavidromeSong", b =>
+                {
+                    b.HasBaseType("ErsatzTV.Core.Domain.Song");
+
+                    b.Property<string>("Etag")
+                        .HasMaxLength(40)
+                        .IsUnicode(false)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ItemId")
+                        .HasMaxLength(36)
+                        .IsUnicode(false)
+                        .HasColumnType("TEXT");
+
+                    b.HasIndex("ItemId");
+
+                    b.ToTable("NavidromeSong", (string)null);
                 });
 
             modelBuilder.Entity("ErsatzTV.Core.Domain.Actor", b =>
@@ -4900,6 +4987,28 @@ namespace ErsatzTV.Infrastructure.Sqlite.Migrations
                         .IsRequired();
 
                     b.Navigation("MusicVideo");
+                });
+
+            modelBuilder.Entity("ErsatzTV.Core.Domain.NavidromeConnection", b =>
+                {
+                    b.HasOne("ErsatzTV.Core.Domain.NavidromeMediaSource", "NavidromeMediaSource")
+                        .WithMany("Connections")
+                        .HasForeignKey("NavidromeMediaSourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("NavidromeMediaSource");
+                });
+
+            modelBuilder.Entity("ErsatzTV.Core.Domain.NavidromePathReplacement", b =>
+                {
+                    b.HasOne("ErsatzTV.Core.Domain.NavidromeMediaSource", "NavidromeMediaSource")
+                        .WithMany("PathReplacements")
+                        .HasForeignKey("NavidromeMediaSourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("NavidromeMediaSource");
                 });
 
             modelBuilder.Entity("ErsatzTV.Core.Domain.OtherVideoMetadata", b =>
@@ -6039,6 +6148,15 @@ namespace ErsatzTV.Infrastructure.Sqlite.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("ErsatzTV.Core.Domain.NavidromeLibrary", b =>
+                {
+                    b.HasOne("ErsatzTV.Core.Domain.Library", null)
+                        .WithOne()
+                        .HasForeignKey("ErsatzTV.Core.Domain.NavidromeLibrary", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("ErsatzTV.Core.Domain.PlexLibrary", b =>
                 {
                     b.HasOne("ErsatzTV.Core.Domain.Library", null)
@@ -6194,6 +6312,15 @@ namespace ErsatzTV.Infrastructure.Sqlite.Migrations
                     b.HasOne("ErsatzTV.Core.Domain.MediaSource", null)
                         .WithOne()
                         .HasForeignKey("ErsatzTV.Core.Domain.LocalMediaSource", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ErsatzTV.Core.Domain.NavidromeMediaSource", b =>
+                {
+                    b.HasOne("ErsatzTV.Core.Domain.MediaSource", null)
+                        .WithOne()
+                        .HasForeignKey("ErsatzTV.Core.Domain.NavidromeMediaSource", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
@@ -6356,6 +6483,15 @@ namespace ErsatzTV.Infrastructure.Sqlite.Migrations
                     b.HasOne("ErsatzTV.Core.Domain.Show", null)
                         .WithOne()
                         .HasForeignKey("ErsatzTV.Core.Domain.PlexShow", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ErsatzTV.Core.Domain.NavidromeSong", b =>
+                {
+                    b.HasOne("ErsatzTV.Core.Domain.Song", null)
+                        .WithOne()
+                        .HasForeignKey("ErsatzTV.Core.Domain.NavidromeSong", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
@@ -6851,6 +6987,13 @@ namespace ErsatzTV.Infrastructure.Sqlite.Migrations
                 });
 
             modelBuilder.Entity("ErsatzTV.Core.Domain.JellyfinMediaSource", b =>
+                {
+                    b.Navigation("Connections");
+
+                    b.Navigation("PathReplacements");
+                });
+
+            modelBuilder.Entity("ErsatzTV.Core.Domain.NavidromeMediaSource", b =>
                 {
                     b.Navigation("Connections");
 
