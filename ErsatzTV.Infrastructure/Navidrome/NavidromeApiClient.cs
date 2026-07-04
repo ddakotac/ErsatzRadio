@@ -303,7 +303,7 @@ public class NavidromeApiClient : INavidromeApiClient
             item.BitRate?.ToString(System.Globalization.CultureInfo.InvariantCulture),
             item.Path);
 
-        byte[] hash = SHA1.HashData(Encoding.UTF8.GetBytes(fingerprint));
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(fingerprint));
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
