@@ -1,4 +1,4 @@
-using System.IO.Abstractions;
+﻿using System.IO.Abstractions;
 using ErsatzTV.Core;
 using ErsatzTV.Core.Audiobookshelf;
 using ErsatzTV.Core.Domain;
@@ -8,6 +8,7 @@ using ErsatzTV.Core.Interfaces.Metadata;
 using ErsatzTV.Core.Interfaces.Repositories;
 using ErsatzTV.Core.Metadata;
 using ErsatzTV.Scanner.Core.Interfaces;
+using ErsatzTV.Scanner.Core.Interfaces.Metadata;
 using ErsatzTV.Scanner.Core.Metadata;
 using Microsoft.Extensions.Logging;
 
@@ -31,13 +32,13 @@ public class AudiobookshelfTelevisionLibraryScanner :
         IAudiobookshelfPathReplacementService pathReplacementService,
         IMediaSourceRepository mediaSourceRepository,
         IFileSystem fileSystem,
-        IMediaSources mediaSources,
+        ILocalChaptersProvider localChaptersProvider,
         IMetadataRepository metadataRepository,
         ILogger<AudiobookshelfTelevisionLibraryScanner> logger)
         : base(
             scannerProxy,
             fileSystem,
-            mediaSources,
+            localChaptersProvider,
             metadataRepository,
             logger)
     {
@@ -85,15 +86,17 @@ public class AudiobookshelfTelevisionLibraryScanner :
     protected override string MediaServerEtag(AudiobookshelfEpisode episode) => episode.Etag;
 
     protected override IAsyncEnumerable<Tuple<AudiobookshelfSeason, int>> GetSeasonLibraryItems(
-        AudiobookshelfConnectionParameters connectionParameters,
         AudiobookshelfLibrary library,
+        AudiobookshelfConnectionParameters connectionParameters,
         AudiobookshelfShow show) =>
         _audiobookshelfApiClient.GetSeasonLibraryItems(connectionParameters, library, show);
 
     protected override async IAsyncEnumerable<Tuple<AudiobookshelfEpisode, int>> GetEpisodeLibraryItems(
-        AudiobookshelfConnectionParameters connectionParameters,
         AudiobookshelfLibrary library,
-        AudiobookshelfSeason season)
+        AudiobookshelfConnectionParameters connectionParameters,
+        AudiobookshelfShow show,
+        AudiobookshelfSeason season,
+        bool isNewSeason)
     {
         await foreach ((AudiobookshelfEpisode episode, int total) in
                        _audiobookshelfApiClient.GetEpisodeLibraryItems(connectionParameters, library, season))

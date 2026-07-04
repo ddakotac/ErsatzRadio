@@ -48,6 +48,13 @@ public interface IMediaSourceRepository
         List<NavidromeLibrary> toUpdate,
         CancellationToken cancellationToken);
 
+    Task<List<int>> UpdateLibraries(
+        int audiobookshelfMediaSourceId,
+        List<AudiobookshelfLibrary> toAdd,
+        List<AudiobookshelfLibrary> toDelete,
+        List<AudiobookshelfLibrary> toUpdate,
+        CancellationToken cancellationToken);
+
     Task<Unit> UpdatePathReplacements(
         int plexMediaSourceId,
         List<PlexPathReplacement> toAdd,
