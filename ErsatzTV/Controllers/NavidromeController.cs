@@ -69,6 +69,28 @@ public class NavidromeController : ControllerBase
             error => BadRequest(new { error = error.Value }));
     }
 
+    [HttpGet("sources/{id:int}/path-replacements")]
+    public async Task<IActionResult> GetPathReplacements(int id, CancellationToken cancellationToken)
+    {
+        List<NavidromePathReplacementViewModel> replacements =
+            await _mediator.Send(new GetNavidromePathReplacementsBySourceId(id), cancellationToken);
+        return Ok(replacements);
+    }
+
+    [HttpPost("sources/{id:int}/path-replacements")]
+    public async Task<IActionResult> UpdatePathReplacements(
+        int id,
+        [FromBody] List<NavidromePathReplacementItem> replacements,
+        CancellationToken cancellationToken)
+    {
+        Either<BaseError, Unit> result = await _mediator.Send(
+            new UpdateNavidromePathReplacements(id, replacements),
+            cancellationToken);
+        return result.Match<IActionResult>(
+            _ => Ok(new { status = "updated" }),
+            error => BadRequest(new { error = error.Value }));
+    }
+
     [HttpPost("libraries/{id:int}/scan")]
     public async Task<IActionResult> ScanLibrary(
         int id,

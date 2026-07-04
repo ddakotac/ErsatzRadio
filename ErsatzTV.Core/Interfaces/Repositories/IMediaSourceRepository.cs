@@ -92,6 +92,12 @@ public interface IMediaSourceRepository
     Task<List<NavidromePathReplacement>> GetNavidromePathReplacements(int navidromeMediaSourceId);
     Task<List<int>> DeleteAllNavidrome();
 
+    Task<Unit> UpdatePathReplacements(
+        int navidromeMediaSourceId,
+        List<NavidromePathReplacement> toAdd,
+        List<NavidromePathReplacement> toUpdate,
+        List<NavidromePathReplacement> toDelete);
+
     Task<Unit> UpsertEmby(string address, string serverName, string operatingSystem);
     Task<List<EmbyMediaSource>> GetAllEmby(CancellationToken cancellationToken);
     Task<Option<EmbyMediaSource>> GetEmby(int id, CancellationToken cancellationToken);

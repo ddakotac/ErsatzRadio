@@ -780,6 +780,42 @@ public class MediaSourceRepository(IDbContextFactory<TvContext> dbContextFactory
         return deletedMediaIds;
     }
 
+    public async Task<Unit> UpdatePathReplacements(
+        int navidromeMediaSourceId,
+        List<NavidromePathReplacement> toAdd,
+        List<NavidromePathReplacement> toUpdate,
+        List<NavidromePathReplacement> toDelete)
+    {
+        await using TvContext dbContext = await dbContextFactory.CreateDbContextAsync();
+
+        foreach (NavidromePathReplacement add in toAdd)
+        {
+            await dbContext.Connection.ExecuteAsync(
+                @"INSERT INTO NavidromePathReplacement
+                    (NavidromePath, LocalPath, NavidromeMediaSourceId)
+                    VALUES (@NavidromePath, @LocalPath, @NavidromeMediaSourceId)",
+                new { add.NavidromePath, add.LocalPath, NavidromeMediaSourceId = navidromeMediaSourceId });
+        }
+
+        foreach (NavidromePathReplacement update in toUpdate)
+        {
+            await dbContext.Connection.ExecuteAsync(
+                @"UPDATE NavidromePathReplacement
+                    SET NavidromePath = @NavidromePath, LocalPath = @LocalPath
+                    WHERE Id = @Id",
+                new { update.NavidromePath, update.LocalPath, update.Id });
+        }
+
+        foreach (NavidromePathReplacement delete in toDelete)
+        {
+            await dbContext.Connection.ExecuteAsync(
+                @"DELETE FROM NavidromePathReplacement WHERE Id = @Id",
+                new { delete.Id });
+        }
+
+        return Unit.Default;
+    }
+
     public async Task<Unit> UpsertNavidrome(string address, string serverName)
     {
         await using TvContext dbContext = await dbContextFactory.CreateDbContextAsync();
