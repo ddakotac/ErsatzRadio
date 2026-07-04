@@ -70,3 +70,8 @@ CRITICAL DISCOVERY: navidrome subsonic api reports TAG-DERIVED VIRTUAL paths (e.
 - SynchronizeNavidromeLibraries now IScannerBackgroundServiceRequest
 NOTE: fresh-install Libraries page shows nothing until local libraries get paths - stock behavior, not a bug.
 STILL TODO session 4: media sources UI page for navidrome (add/edit/secrets/path replacements in browser), scheduled periodic scans, artwork via getCoverArt, THEN AUDIO-ONLY CHANNEL MODE.
+
+### Session 3b/3c addendum
+- ScannerService channel consumer: navidrome cases added (was throwing NotSupportedException)
+- Navidrome native api returns paths RELATIVE TO LIBRARY ROOT (no /music prefix); correct replacement is empty NavidromePath prefix + LocalPath=/media/shared/Music (prepend)
+- ARCHITECTURE DECISION: navidrome paths resolved to LOCAL paths at scan time and stored locally (like local libraries), NOT at playout time. Playout/media cards/troubleshooting need zero navidrome-specific logic. CONSEQUENCE: after changing a path replacement, run a DEEP scan to rewrite stored paths (non-deep scans skip unchanged etags and leave stale paths).

@@ -17,6 +17,7 @@ public class NavidromeSongLibraryScanner :
     INavidromeSongLibraryScanner
 {
     private readonly INavidromeApiClient _navidromeApiClient;
+    private List<NavidromePathReplacement> _pathReplacements = [];
     private readonly INavidromeSongRepository _navidromeSongRepository;
     private readonly IMediaSourceRepository _mediaSourceRepository;
     private readonly INavidromePathReplacementService _pathReplacementService;
@@ -48,16 +49,14 @@ public class NavidromeSongLibraryScanner :
         bool deepScan,
         CancellationToken cancellationToken)
     {
-        List<NavidromePathReplacement> pathReplacements =
+        _pathReplacements =
             await _mediaSourceRepository.GetNavidromePathReplacements(library.MediaSourceId);
 
-        string GetLocalPath(NavidromeSong song)
-        {
-            return _pathReplacementService.GetReplacementNavidromePath(
-                pathReplacements,
-                song.GetHeadVersion().MediaFiles.Head().Path,
-                false);
-        }
+        // paths are resolved to local paths at scan time (see GetSongLibraryItems),
+        // so the local path IS the stored path; playout and availability need no
+        // navidrome-specific logic downstream
+        static string GetLocalPath(NavidromeSong song) =>
+            song.GetHeadVersion().MediaFiles.Head().Path;
 
         return await ScanLibrary(
             _navidromeSongRepository,
@@ -72,10 +71,25 @@ public class NavidromeSongLibraryScanner :
 
     protected override string MediaServerEtag(NavidromeSong song) => song.Etag;
 
-    protected override IAsyncEnumerable<Tuple<NavidromeSong, int>> GetSongLibraryItems(
+    protected override async IAsyncEnumerable<Tuple<NavidromeSong, int>> GetSongLibraryItems(
         NavidromeConnectionParameters connectionParameters,
-        NavidromeLibrary library) =>
-        _navidromeApiClient.GetSongLibraryItems(connectionParameters, library);
+        NavidromeLibrary library)
+    {
+        await foreach ((NavidromeSong song, int total) in
+                       _navidromeApiClient.GetSongLibraryItems(connectionParameters, library))
+        {
+            // resolve the server-relative path to a local path before anything
+            // downstream sees the item
+            MediaFile file = song.GetHeadVersion().MediaFiles.Head();
+            file.Path = _pathReplacementService.GetReplacementNavidromePath(
+                _pathReplacements,
+                file.Path,
+                false);
+            file.PathHash = PathUtils.GetPathHash(file.Path);
+
+            yield return Tuple(song, total);
+        }
+    }
 
     protected override Task<Option<MediaVersion>> GetMediaServerStatistics(
         NavidromeConnectionParameters connectionParameters,
