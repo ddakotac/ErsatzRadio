@@ -256,6 +256,51 @@ namespace ErsatzTV.Infrastructure.MySql.Migrations
                     b.ToTable("Artwork", (string)null);
                 });
 
+            modelBuilder.Entity("ErsatzTV.Core.Domain.AudiobookshelfConnection", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Address")
+                        .HasColumnType("longtext");
+
+                    b.Property<int>("AudiobookshelfMediaSourceId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AudiobookshelfMediaSourceId");
+
+                    b.ToTable("AudiobookshelfConnection", (string)null);
+                });
+
+            modelBuilder.Entity("ErsatzTV.Core.Domain.AudiobookshelfPathReplacement", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AudiobookshelfMediaSourceId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("AudiobookshelfPath")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("LocalPath")
+                        .HasColumnType("longtext");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AudiobookshelfMediaSourceId");
+
+                    b.ToTable("AudiobookshelfPathReplacement", (string)null);
+                });
+
             modelBuilder.Entity("ErsatzTV.Core.Domain.BlockItemGraphicsElement", b =>
                 {
                     b.Property<int>("BlockItemId")
@@ -3936,6 +3981,26 @@ namespace ErsatzTV.Infrastructure.MySql.Migrations
                     b.ToTable("JellyfinPathInfo");
                 });
 
+            modelBuilder.Entity("ErsatzTV.Core.Domain.AudiobookshelfLibrary", b =>
+                {
+                    b.HasBaseType("ErsatzTV.Core.Domain.Library");
+
+                    b.Property<string>("AbsMediaType")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("ItemId")
+                        .HasMaxLength(36)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(36)");
+
+                    b.Property<bool>("ShouldSyncItems")
+                        .HasColumnType("tinyint(1)");
+
+                    b.HasIndex("ItemId");
+
+                    b.ToTable("AudiobookshelfLibrary", (string)null);
+                });
+
             modelBuilder.Entity("ErsatzTV.Core.Domain.EmbyLibrary", b =>
                 {
                     b.HasBaseType("ErsatzTV.Core.Domain.Library");
@@ -4122,6 +4187,16 @@ namespace ErsatzTV.Infrastructure.MySql.Migrations
                     b.ToTable("Song", (string)null);
                 });
 
+            modelBuilder.Entity("ErsatzTV.Core.Domain.AudiobookshelfMediaSource", b =>
+                {
+                    b.HasBaseType("ErsatzTV.Core.Domain.MediaSource");
+
+                    b.Property<string>("ServerName")
+                        .HasColumnType("longtext");
+
+                    b.ToTable("AudiobookshelfMediaSource", (string)null);
+                });
+
             modelBuilder.Entity("ErsatzTV.Core.Domain.EmbyMediaSource", b =>
                 {
                     b.HasBaseType("ErsatzTV.Core.Domain.MediaSource");
@@ -4239,6 +4314,25 @@ namespace ErsatzTV.Infrastructure.MySql.Migrations
                     b.ToTable("ProgramScheduleOneItem", (string)null);
                 });
 
+            modelBuilder.Entity("ErsatzTV.Core.Domain.AudiobookshelfEpisode", b =>
+                {
+                    b.HasBaseType("ErsatzTV.Core.Domain.Episode");
+
+                    b.Property<string>("Etag")
+                        .HasMaxLength(36)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(36)");
+
+                    b.Property<string>("ItemId")
+                        .HasMaxLength(36)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(36)");
+
+                    b.HasIndex("ItemId");
+
+                    b.ToTable("AudiobookshelfEpisode", (string)null);
+                });
+
             modelBuilder.Entity("ErsatzTV.Core.Domain.EmbyEpisode", b =>
                 {
                     b.HasBaseType("ErsatzTV.Core.Domain.Episode");
@@ -4342,6 +4436,25 @@ namespace ErsatzTV.Infrastructure.MySql.Migrations
                     b.ToTable("PlexOtherVideo", (string)null);
                 });
 
+            modelBuilder.Entity("ErsatzTV.Core.Domain.AudiobookshelfSeason", b =>
+                {
+                    b.HasBaseType("ErsatzTV.Core.Domain.Season");
+
+                    b.Property<string>("Etag")
+                        .HasMaxLength(36)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(36)");
+
+                    b.Property<string>("ItemId")
+                        .HasMaxLength(36)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(36)");
+
+                    b.HasIndex("ItemId");
+
+                    b.ToTable("AudiobookshelfSeason", (string)null);
+                });
+
             modelBuilder.Entity("ErsatzTV.Core.Domain.EmbySeason", b =>
                 {
                     b.HasBaseType("ErsatzTV.Core.Domain.Season");
@@ -4385,6 +4498,25 @@ namespace ErsatzTV.Infrastructure.MySql.Migrations
                         .HasColumnType("longtext");
 
                     b.ToTable("PlexSeason", (string)null);
+                });
+
+            modelBuilder.Entity("ErsatzTV.Core.Domain.AudiobookshelfShow", b =>
+                {
+                    b.HasBaseType("ErsatzTV.Core.Domain.Show");
+
+                    b.Property<string>("Etag")
+                        .HasMaxLength(36)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(36)");
+
+                    b.Property<string>("ItemId")
+                        .HasMaxLength(36)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(36)");
+
+                    b.HasIndex("ItemId");
+
+                    b.ToTable("AudiobookshelfShow", (string)null);
                 });
 
             modelBuilder.Entity("ErsatzTV.Core.Domain.EmbyShow", b =>
@@ -4578,6 +4710,28 @@ namespace ErsatzTV.Infrastructure.MySql.Migrations
                         .WithMany("Artwork")
                         .HasForeignKey("SongMetadataId")
                         .OnDelete(DeleteBehavior.Cascade);
+                });
+
+            modelBuilder.Entity("ErsatzTV.Core.Domain.AudiobookshelfConnection", b =>
+                {
+                    b.HasOne("ErsatzTV.Core.Domain.AudiobookshelfMediaSource", "AudiobookshelfMediaSource")
+                        .WithMany("Connections")
+                        .HasForeignKey("AudiobookshelfMediaSourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AudiobookshelfMediaSource");
+                });
+
+            modelBuilder.Entity("ErsatzTV.Core.Domain.AudiobookshelfPathReplacement", b =>
+                {
+                    b.HasOne("ErsatzTV.Core.Domain.AudiobookshelfMediaSource", "AudiobookshelfMediaSource")
+                        .WithMany("PathReplacements")
+                        .HasForeignKey("AudiobookshelfMediaSourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AudiobookshelfMediaSource");
                 });
 
             modelBuilder.Entity("ErsatzTV.Core.Domain.BlockItemGraphicsElement", b =>
@@ -6298,6 +6452,15 @@ namespace ErsatzTV.Infrastructure.MySql.Migrations
                         .OnDelete(DeleteBehavior.Cascade);
                 });
 
+            modelBuilder.Entity("ErsatzTV.Core.Domain.AudiobookshelfLibrary", b =>
+                {
+                    b.HasOne("ErsatzTV.Core.Domain.Library", null)
+                        .WithOne()
+                        .HasForeignKey("ErsatzTV.Core.Domain.AudiobookshelfLibrary", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("ErsatzTV.Core.Domain.EmbyLibrary", b =>
                 {
                     b.HasOne("ErsatzTV.Core.Domain.Library", null)
@@ -6466,6 +6629,15 @@ namespace ErsatzTV.Infrastructure.MySql.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("ErsatzTV.Core.Domain.AudiobookshelfMediaSource", b =>
+                {
+                    b.HasOne("ErsatzTV.Core.Domain.MediaSource", null)
+                        .WithOne()
+                        .HasForeignKey("ErsatzTV.Core.Domain.AudiobookshelfMediaSource", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("ErsatzTV.Core.Domain.EmbyMediaSource", b =>
                 {
                     b.HasOne("ErsatzTV.Core.Domain.MediaSource", null)
@@ -6547,6 +6719,15 @@ namespace ErsatzTV.Infrastructure.MySql.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("ErsatzTV.Core.Domain.AudiobookshelfEpisode", b =>
+                {
+                    b.HasOne("ErsatzTV.Core.Domain.Episode", null)
+                        .WithOne()
+                        .HasForeignKey("ErsatzTV.Core.Domain.AudiobookshelfEpisode", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("ErsatzTV.Core.Domain.EmbyEpisode", b =>
                 {
                     b.HasOne("ErsatzTV.Core.Domain.Episode", null)
@@ -6610,6 +6791,15 @@ namespace ErsatzTV.Infrastructure.MySql.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("ErsatzTV.Core.Domain.AudiobookshelfSeason", b =>
+                {
+                    b.HasOne("ErsatzTV.Core.Domain.Season", null)
+                        .WithOne()
+                        .HasForeignKey("ErsatzTV.Core.Domain.AudiobookshelfSeason", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("ErsatzTV.Core.Domain.EmbySeason", b =>
                 {
                     b.HasOne("ErsatzTV.Core.Domain.Season", null)
@@ -6633,6 +6823,15 @@ namespace ErsatzTV.Infrastructure.MySql.Migrations
                     b.HasOne("ErsatzTV.Core.Domain.Season", null)
                         .WithOne()
                         .HasForeignKey("ErsatzTV.Core.Domain.PlexSeason", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ErsatzTV.Core.Domain.AudiobookshelfShow", b =>
+                {
+                    b.HasOne("ErsatzTV.Core.Domain.Show", null)
+                        .WithOne()
+                        .HasForeignKey("ErsatzTV.Core.Domain.AudiobookshelfShow", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
@@ -7154,6 +7353,13 @@ namespace ErsatzTV.Infrastructure.MySql.Migrations
                     b.Navigation("MediaVersions");
 
                     b.Navigation("SongMetadata");
+                });
+
+            modelBuilder.Entity("ErsatzTV.Core.Domain.AudiobookshelfMediaSource", b =>
+                {
+                    b.Navigation("Connections");
+
+                    b.Navigation("PathReplacements");
                 });
 
             modelBuilder.Entity("ErsatzTV.Core.Domain.EmbyMediaSource", b =>
