@@ -8,10 +8,10 @@
         environment:
             TZ: America/Chicago
         ports:
-            - "8409:8409"
+            - "8499:8409"
         volumes:
             - ersatztv:/config
-            #- /media/shared:/media/shared:ro
+            - /mnt/dildakicon:/media/shared:ro
         tmpfs:
             - /transcode
 volumes:

@@ -13,7 +13,7 @@ public class FlexibleStringConverter : JsonConverter<string>
         reader.TokenType switch
         {
             JsonTokenType.Number => reader.TryGetInt64(out long l)
-                ? l.ToString()
+                ? l.ToString(System.Globalization.CultureInfo.InvariantCulture)
                 : reader.GetDouble().ToString(System.Globalization.CultureInfo.InvariantCulture),
             JsonTokenType.String => reader.GetString(),
             JsonTokenType.Null => null,
