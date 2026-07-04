@@ -24,6 +24,7 @@ COPY scripts/scripted-schedules/. /app/scripted-schedules/
 
 # copy csproj and restore as distinct layers
 COPY *.sln .
+COPY Directory.Build.props .
 COPY artwork/* ./artwork/
 COPY ErsatzTV/*.csproj ./ErsatzTV/
 COPY ErsatzTV.Application/*.csproj ./ErsatzTV.Application/
