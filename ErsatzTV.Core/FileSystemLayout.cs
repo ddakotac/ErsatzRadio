@@ -24,6 +24,7 @@ public static class FileSystemLayout
     public static readonly string PlexSecretsPath;
     public static readonly string JellyfinSecretsPath;
     public static readonly string EmbySecretsPath;
+    public static readonly string NavidromeSecretsPath;
 
     public static readonly string FFmpegReportsFolder;
     public static readonly string SearchIndexFolder;
@@ -149,6 +150,7 @@ public static class FileSystemLayout
         PlexSecretsPath = Path.Combine(AppDataFolder, "plex-secrets.json");
         JellyfinSecretsPath = Path.Combine(AppDataFolder, "jellyfin-secrets.json");
         EmbySecretsPath = Path.Combine(AppDataFolder, "emby-secrets.json");
+        NavidromeSecretsPath = Path.Combine(AppDataFolder, "navidrome-secrets.json");
 
         FFmpegReportsFolder = Path.Combine(AppDataFolder, "ffmpeg-reports");
         SearchIndexFolder = Path.Combine(AppDataFolder, "search-index");
