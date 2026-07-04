@@ -1,4 +1,5 @@
 ﻿using ErsatzTV.Application.Emby;
+using ErsatzTV.Application.Audiobookshelf;
 using ErsatzTV.Application.Navidrome;
 using ErsatzTV.Application.Jellyfin;
 using ErsatzTV.Core.Domain;
@@ -30,6 +31,12 @@ internal static class Mapper
                 n.MediaKind,
                 n.ShouldSyncItems,
                 n.MediaSourceId),
+            AudiobookshelfLibrary a => new AudiobookshelfLibraryViewModel(
+                a.Id,
+                a.Name,
+                a.MediaKind,
+                a.ShouldSyncItems,
+                a.MediaSourceId),
             _ => throw new ArgumentOutOfRangeException(nameof(library))
         };
 

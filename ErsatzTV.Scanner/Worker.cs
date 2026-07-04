@@ -4,6 +4,7 @@ using ErsatzTV.Scanner.Application.Emby;
 using ErsatzTV.Scanner.Application.FFmpeg;
 using ErsatzTV.Scanner.Application.Jellyfin;
 using ErsatzTV.Scanner.Application.MediaSources;
+using ErsatzTV.Scanner.Application.Audiobookshelf;
 using ErsatzTV.Scanner.Application.Navidrome;
 using ErsatzTV.Scanner.Application.Plex;
 using Microsoft.Extensions.DependencyInjection;
@@ -129,6 +130,12 @@ public class Worker : BackgroundService
         scanNavidromeCommand.Arguments.Add(baseUrlArgument);
         scanNavidromeCommand.Options.Add(forceOption);
         scanNavidromeCommand.Options.Add(deepOption);
+
+        var scanAudiobookshelfCommand = new Command("scan-audiobookshelf", "Scan an Audiobookshelf library");
+        scanAudiobookshelfCommand.Arguments.Add(libraryIdArgument);
+        scanAudiobookshelfCommand.Arguments.Add(baseUrlArgument);
+        scanAudiobookshelfCommand.Options.Add(forceOption);
+        scanAudiobookshelfCommand.Options.Add(deepOption);
 
         // Show-specific scanning commands
         var showIdArgument = new Argument<int>("show-id")
@@ -338,6 +345,29 @@ public class Worker : BackgroundService
             }
         });
 
+        scanAudiobookshelfCommand.SetAction(async (parseResult, token) =>
+        {
+            if (IsScanningEnabled())
+            {
+                bool force = parseResult.GetValue(forceOption);
+                SetProcessPriority(force);
+
+                bool deep = parseResult.GetValue(deepOption);
+                int libraryId = parseResult.GetValue(libraryIdArgument);
+                string? baseUrl = parseResult.GetValue(baseUrlArgument);
+                if (baseUrl is null)
+                {
+                    return;
+                }
+
+                using IServiceScope scope = _serviceScopeFactory.CreateScope();
+                IMediator mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+
+                var scan = new SynchronizeAudiobookshelfLibraryById(baseUrl, libraryId, force, deep);
+                await mediator.Send(scan, token);
+            }
+        });
+
         scanJellyfinCollectionsCommand.SetAction(async (parseResult, token) =>
         {
             if (IsScanningEnabled())
@@ -434,6 +464,7 @@ public class Worker : BackgroundService
         rootCommand.Subcommands.Add(scanJellyfinCommand);
         rootCommand.Subcommands.Add(scanJellyfinCollectionsCommand);
         rootCommand.Subcommands.Add(scanNavidromeCommand);
+        rootCommand.Subcommands.Add(scanAudiobookshelfCommand);
         rootCommand.Subcommands.Add(scanPlexShowCommand);
         rootCommand.Subcommands.Add(scanEmbyShowCommand);
         rootCommand.Subcommands.Add(scanJellyfinShowCommand);

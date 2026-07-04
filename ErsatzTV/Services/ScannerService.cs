@@ -3,6 +3,7 @@ using ErsatzTV.Application;
 using ErsatzTV.Application.Emby;
 using ErsatzTV.Application.Jellyfin;
 using ErsatzTV.Application.MediaSources;
+using ErsatzTV.Application.Audiobookshelf;
 using ErsatzTV.Application.Navidrome;
 using ErsatzTV.Application.Plex;
 using ErsatzTV.Core;
@@ -83,6 +84,14 @@ public class ScannerService : BackgroundService
                             break;
                         case ISynchronizeNavidromeLibraryById synchronizeNavidromeLibraryById:
                             requestTask = SynchronizeNavidromeLibrary(synchronizeNavidromeLibraryById, stoppingToken);
+                            break;
+                        case SynchronizeAudiobookshelfLibraries synchronizeAudiobookshelfLibraries:
+                            requestTask = SynchronizeLibraries(synchronizeAudiobookshelfLibraries, stoppingToken);
+                            break;
+                        case ISynchronizeAudiobookshelfLibraryById synchronizeAudiobookshelfLibraryById:
+                            requestTask = SynchronizeAudiobookshelfLibrary(
+                                synchronizeAudiobookshelfLibraryById,
+                                stoppingToken);
                             break;
                         case IScanLocalLibrary scanLocalLibrary:
                             requestTask = SynchronizeLocalLibrary(scanLocalLibrary, stoppingToken);
@@ -454,6 +463,56 @@ public class ScannerService : BackgroundService
         if (entityLocker.IsLibraryLocked(request.NavidromeLibraryId))
         {
             entityLocker.UnlockLibrary(request.NavidromeLibraryId);
+        }
+    }
+
+    private async Task SynchronizeLibraries(SynchronizeAudiobookshelfLibraries request, CancellationToken cancellationToken)
+    {
+        using IServiceScope scope = _serviceScopeFactory.CreateScope();
+        IMediator mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+
+        Either<BaseError, Unit> result = await mediator.Send(request, cancellationToken);
+        result.BiIter(
+            _ => _logger.LogDebug(
+                "Done synchronizing audiobookshelf libraries for media source {MediaSourceId}",
+                request.AudiobookshelfMediaSourceId),
+            error => _logger.LogWarning(
+                "Unable to synchronize audiobookshelf libraries for media source {MediaSourceId}: {Error}",
+                request.AudiobookshelfMediaSourceId,
+                error.Value));
+    }
+
+    private async Task SynchronizeAudiobookshelfLibrary(
+        ISynchronizeAudiobookshelfLibraryById request,
+        CancellationToken cancellationToken)
+    {
+        using IServiceScope scope = _serviceScopeFactory.CreateScope();
+        IMediator mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        IEntityLocker entityLocker = scope.ServiceProvider.GetRequiredService<IEntityLocker>();
+
+        Either<BaseError, string> result = await mediator.Send(request, cancellationToken);
+        result.BiIter(
+            name => _logger.LogDebug("Done synchronizing audiobookshelf library {Name}", name),
+            error =>
+            {
+                if (error is ScanIsNotRequired)
+                {
+                    _logger.LogDebug(
+                        "Scan is not required for audiobookshelf library {LibraryId} at this time",
+                        request.AudiobookshelfLibraryId);
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "Unable to synchronize audiobookshelf library {LibraryId}: {Error}",
+                        request.AudiobookshelfLibraryId,
+                        error.Value);
+                }
+            });
+
+        if (entityLocker.IsLibraryLocked(request.AudiobookshelfLibraryId))
+        {
+            entityLocker.UnlockLibrary(request.AudiobookshelfLibraryId);
         }
     }
 }

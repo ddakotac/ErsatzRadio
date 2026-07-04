@@ -36,6 +36,7 @@ public class TvContext : DbContext
     public DbSet<PlexMediaSource> PlexMediaSources { get; set; }
     public DbSet<JellyfinMediaSource> JellyfinMediaSources { get; set; }
     public DbSet<NavidromeMediaSource> NavidromeMediaSources { get; set; }
+    public DbSet<AudiobookshelfMediaSource> AudiobookshelfMediaSources { get; set; }
     public DbSet<EmbyMediaSource> EmbyMediaSources { get; set; }
     public DbSet<Library> Libraries { get; set; }
     public DbSet<LocalLibrary> LocalLibraries { get; set; }
@@ -44,10 +45,12 @@ public class TvContext : DbContext
     public DbSet<PlexLibrary> PlexLibraries { get; set; }
     public DbSet<JellyfinLibrary> JellyfinLibraries { get; set; }
     public DbSet<NavidromeLibrary> NavidromeLibraries { get; set; }
+    public DbSet<AudiobookshelfLibrary> AudiobookshelfLibraries { get; set; }
     public DbSet<EmbyLibrary> EmbyLibraries { get; set; }
     public DbSet<PlexPathReplacement> PlexPathReplacements { get; set; }
     public DbSet<JellyfinPathReplacement> JellyfinPathReplacements { get; set; }
     public DbSet<NavidromePathReplacement> NavidromePathReplacements { get; set; }
+    public DbSet<AudiobookshelfPathReplacement> AudiobookshelfPathReplacements { get; set; }
     public DbSet<EmbyPathReplacement> EmbyPathReplacements { get; set; }
     public DbSet<MediaItem> MediaItems { get; set; }
     public DbSet<MediaVersion> MediaVersions { get; set; }
@@ -84,6 +87,9 @@ public class TvContext : DbContext
     public DbSet<PlexEpisode> PlexEpisodes { get; set; }
     public DbSet<PlexCollection> PlexCollections { get; set; }
     public DbSet<NavidromeSong> NavidromeSongs { get; set; }
+    public DbSet<AudiobookshelfShow> AudiobookshelfShows { get; set; }
+    public DbSet<AudiobookshelfSeason> AudiobookshelfSeasons { get; set; }
+    public DbSet<AudiobookshelfEpisode> AudiobookshelfEpisodes { get; set; }
     public DbSet<JellyfinMovie> JellyfinMovies { get; set; }
     public DbSet<JellyfinShow> JellyfinShows { get; set; }
     public DbSet<JellyfinSeason> JellyfinSeasons { get; set; }

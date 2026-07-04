@@ -98,6 +98,23 @@ public interface IMediaSourceRepository
         List<NavidromePathReplacement> toUpdate,
         List<NavidromePathReplacement> toDelete);
 
+    Task<Unit> UpsertAudiobookshelf(string address, string serverName);
+    Task<List<AudiobookshelfMediaSource>> GetAllAudiobookshelf(CancellationToken cancellationToken);
+    Task<Option<AudiobookshelfMediaSource>> GetAudiobookshelf(int id);
+    Task<List<AudiobookshelfLibrary>> GetAudiobookshelfLibraries(int audiobookshelfMediaSourceId);
+    Task<Unit> EnableAudiobookshelfLibrarySync(IEnumerable<int> libraryIds);
+    Task<List<int>> DisableAudiobookshelfLibrarySync(List<int> libraryIds);
+    Task<Option<AudiobookshelfLibrary>> GetAudiobookshelfLibrary(int audiobookshelfLibraryId);
+    Task<Option<AudiobookshelfMediaSource>> GetAudiobookshelfByLibraryId(int audiobookshelfLibraryId);
+    Task<List<AudiobookshelfPathReplacement>> GetAudiobookshelfPathReplacements(int audiobookshelfMediaSourceId);
+    Task<List<int>> DeleteAllAudiobookshelf();
+
+    Task<Unit> UpdatePathReplacements(
+        int audiobookshelfMediaSourceId,
+        List<AudiobookshelfPathReplacement> toAdd,
+        List<AudiobookshelfPathReplacement> toUpdate,
+        List<AudiobookshelfPathReplacement> toDelete);
+
     Task<Unit> UpsertEmby(string address, string serverName, string operatingSystem);
     Task<List<EmbyMediaSource>> GetAllEmby(CancellationToken cancellationToken);
     Task<Option<EmbyMediaSource>> GetEmby(int id, CancellationToken cancellationToken);

@@ -29,6 +29,7 @@ public class GetConfiguredLibrariesHandler : IRequestHandler<GetConfiguredLibrar
             JellyfinLibrary jellyfin => jellyfin.ShouldSyncItems,
             EmbyLibrary emby => emby.ShouldSyncItems,
             NavidromeLibrary navidrome => navidrome.ShouldSyncItems,
+            AudiobookshelfLibrary audiobookshelf => audiobookshelf.ShouldSyncItems,
             _ => false
         };
 }

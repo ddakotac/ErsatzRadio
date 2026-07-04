@@ -1000,6 +1000,275 @@ public class MediaSourceRepository(IDbContextFactory<TvContext> dbContextFactory
         return deletedMediaIds;
     }
 
+    public async Task<List<int>> UpdateLibraries(
+        int audiobookshelfMediaSourceId,
+        List<AudiobookshelfLibrary> toAdd,
+        List<AudiobookshelfLibrary> toDelete,
+        List<AudiobookshelfLibrary> toUpdate,
+        CancellationToken cancellationToken)
+    {
+        await using TvContext dbContext = await dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        foreach (AudiobookshelfLibrary add in toAdd)
+        {
+            add.MediaSourceId = audiobookshelfMediaSourceId;
+            dbContext.Entry(add).State = EntityState.Added;
+            foreach (LibraryPath path in add.Paths)
+            {
+                dbContext.Entry(path).State = EntityState.Added;
+            }
+        }
+
+        var libraryIds = toDelete.Map(l => l.Id).ToList();
+        List<int> deletedMediaIds = await dbContext.MediaItems
+            .Filter(mi => libraryIds.Contains(mi.LibraryPath.LibraryId))
+            .Map(mi => mi.Id)
+            .ToListAsync(cancellationToken);
+
+        foreach (AudiobookshelfLibrary delete in toDelete)
+        {
+            dbContext.AudiobookshelfLibraries.Remove(delete);
+        }
+
+        foreach (AudiobookshelfLibrary incoming in toUpdate)
+        {
+            Option<AudiobookshelfLibrary> maybeExisting = await dbContext.AudiobookshelfLibraries
+                .Include(l => l.Paths)
+                .SingleOrDefaultAsync(
+                    l => l.ItemId == incoming.ItemId && l.MediaSourceId == audiobookshelfMediaSourceId,
+                    cancellationToken);
+
+            foreach (AudiobookshelfLibrary existingLibrary in maybeExisting)
+            {
+                existingLibrary.Name = incoming.Name;
+            }
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return deletedMediaIds;
+    }
+
+    public async Task<Unit> UpdatePathReplacements(
+        int audiobookshelfMediaSourceId,
+        List<AudiobookshelfPathReplacement> toAdd,
+        List<AudiobookshelfPathReplacement> toUpdate,
+        List<AudiobookshelfPathReplacement> toDelete)
+    {
+        await using TvContext dbContext = await dbContextFactory.CreateDbContextAsync();
+
+        foreach (AudiobookshelfPathReplacement add in toAdd)
+        {
+            await dbContext.Connection.ExecuteAsync(
+                @"INSERT INTO AudiobookshelfPathReplacement
+                    (AudiobookshelfPath, LocalPath, AudiobookshelfMediaSourceId)
+                    VALUES (@AudiobookshelfPath, @LocalPath, @AudiobookshelfMediaSourceId)",
+                new { add.AudiobookshelfPath, add.LocalPath, AudiobookshelfMediaSourceId = audiobookshelfMediaSourceId });
+        }
+
+        foreach (AudiobookshelfPathReplacement update in toUpdate)
+        {
+            await dbContext.Connection.ExecuteAsync(
+                @"UPDATE AudiobookshelfPathReplacement
+                    SET AudiobookshelfPath = @AudiobookshelfPath, LocalPath = @LocalPath
+                    WHERE Id = @Id",
+                new { update.AudiobookshelfPath, update.LocalPath, update.Id });
+        }
+
+        foreach (AudiobookshelfPathReplacement delete in toDelete)
+        {
+            await dbContext.Connection.ExecuteAsync(
+                @"DELETE FROM AudiobookshelfPathReplacement WHERE Id = @Id",
+                new { delete.Id });
+        }
+
+        return Unit.Default;
+    }
+
+    public async Task<Unit> UpsertAudiobookshelf(string address, string serverName)
+    {
+        await using TvContext dbContext = await dbContextFactory.CreateDbContextAsync();
+        Option<AudiobookshelfMediaSource> maybeExisting = dbContext.AudiobookshelfMediaSources
+            .Include(ms => ms.Connections)
+            .OrderBy(ms => ms.Id)
+            .HeadOrNone();
+
+        return await maybeExisting.Match(
+            async audiobookshelfMediaSource =>
+            {
+                if (audiobookshelfMediaSource.Connections.Count == 0)
+                {
+                    audiobookshelfMediaSource.Connections.Add(new AudiobookshelfConnection { Address = address });
+                }
+                else if (audiobookshelfMediaSource.Connections.Head().Address != address)
+                {
+                    audiobookshelfMediaSource.Connections.Head().Address = address;
+                }
+
+                if (audiobookshelfMediaSource.ServerName != serverName)
+                {
+                    audiobookshelfMediaSource.ServerName = serverName;
+                }
+
+                await dbContext.SaveChangesAsync();
+
+                return Unit.Default;
+            },
+            async () =>
+            {
+                var mediaSource = new AudiobookshelfMediaSource
+                {
+                    ServerName = serverName,
+                    Connections = new List<AudiobookshelfConnection>
+                    {
+                        new() { Address = address }
+                    },
+                    PathReplacements = new List<AudiobookshelfPathReplacement>()
+                };
+
+                await dbContext.AddAsync(mediaSource);
+                await dbContext.SaveChangesAsync();
+
+                return Unit.Default;
+            });
+    }
+
+    public async Task<List<AudiobookshelfMediaSource>> GetAllAudiobookshelf(CancellationToken cancellationToken)
+    {
+        await using TvContext context = await dbContextFactory.CreateDbContextAsync(cancellationToken);
+        return await context.AudiobookshelfMediaSources
+            .AsNoTracking()
+            .Include(p => p.Connections)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<Option<AudiobookshelfMediaSource>> GetAudiobookshelf(int id)
+    {
+        await using TvContext context = await dbContextFactory.CreateDbContextAsync();
+        return await context.AudiobookshelfMediaSources
+            .Include(p => p.Connections)
+            .Include(p => p.Libraries)
+            .Include(p => p.PathReplacements)
+            .OrderBy(p => p.Id)
+            .SingleOrDefaultAsync(p => p.Id == id)
+            .Map(Optional);
+    }
+
+    public async Task<List<AudiobookshelfLibrary>> GetAudiobookshelfLibraries(int audiobookshelfMediaSourceId)
+    {
+        await using TvContext context = await dbContextFactory.CreateDbContextAsync();
+        return await context.AudiobookshelfLibraries
+            .Filter(l => l.MediaSourceId == audiobookshelfMediaSourceId)
+            .ToListAsync();
+    }
+
+    public async Task<Unit> EnableAudiobookshelfLibrarySync(IEnumerable<int> libraryIds)
+    {
+        await using TvContext dbContext = await dbContextFactory.CreateDbContextAsync();
+        return await dbContext.Connection.ExecuteAsync(
+            "UPDATE AudiobookshelfLibrary SET ShouldSyncItems = 1 WHERE Id IN @ids",
+            new { ids = libraryIds }).ToUnit();
+    }
+
+    public async Task<List<int>> DisableAudiobookshelfLibrarySync(List<int> libraryIds)
+    {
+        await using TvContext dbContext = await dbContextFactory.CreateDbContextAsync();
+
+        List<int> deletedMediaIds = await dbContext.MediaItems
+            .Filter(mi => libraryIds.Contains(mi.LibraryPath.LibraryId))
+            .Map(mi => mi.Id)
+            .ToListAsync();
+
+        List<AudiobookshelfLibrary> libraries = await dbContext.AudiobookshelfLibraries
+            .Include(l => l.Paths)
+            .Filter(l => libraryIds.Contains(l.Id))
+            .ToListAsync();
+
+        dbContext.AudiobookshelfLibraries.RemoveRange(libraries);
+        await dbContext.SaveChangesAsync();
+
+        foreach (AudiobookshelfLibrary library in libraries)
+        {
+            library.Id = 0;
+            library.ShouldSyncItems = false;
+            library.LastScan = SystemTime.MinValueUtc;
+            foreach (LibraryPath path in library.Paths)
+            {
+                path.Id = 0;
+                path.LibraryId = 0;
+                path.LastScan = SystemTime.MinValueUtc;
+            }
+
+            await dbContext.AudiobookshelfLibraries.AddAsync(library);
+        }
+
+        await dbContext.SaveChangesAsync();
+
+        return deletedMediaIds;
+    }
+
+    public async Task<Option<AudiobookshelfLibrary>> GetAudiobookshelfLibrary(int audiobookshelfLibraryId)
+    {
+        await using TvContext context = await dbContextFactory.CreateDbContextAsync();
+        return await context.AudiobookshelfLibraries
+            .Include(l => l.Paths)
+            .Include(l => l.MediaSource)
+            .OrderBy(l => l.Id) // https://github.com/dotnet/efcore/issues/22579
+            .SingleOrDefaultAsync(l => l.Id == audiobookshelfLibraryId)
+            .Map(Optional);
+    }
+
+    public async Task<Option<AudiobookshelfMediaSource>> GetAudiobookshelfByLibraryId(int audiobookshelfLibraryId)
+    {
+        await using TvContext dbContext = await dbContextFactory.CreateDbContextAsync();
+
+        int? id = await dbContext.Connection.QuerySingleOrDefaultAsync<int?>(
+            @"SELECT L.MediaSourceId FROM Library L
+                INNER JOIN AudiobookshelfLibrary NL on L.Id = NL.Id
+                WHERE L.Id = @AudiobookshelfLibraryId",
+            new { AudiobookshelfLibraryId = audiobookshelfLibraryId });
+
+        return await dbContext.AudiobookshelfMediaSources
+            .Include(p => p.Connections)
+            .Include(p => p.Libraries)
+            .OrderBy(p => p.Id)
+            .SingleOrDefaultAsync(p => p.Id == id)
+            .Map(Optional);
+    }
+
+    public async Task<List<AudiobookshelfPathReplacement>> GetAudiobookshelfPathReplacements(int audiobookshelfMediaSourceId)
+    {
+        await using TvContext dbContext = await dbContextFactory.CreateDbContextAsync();
+        return await dbContext.AudiobookshelfPathReplacements
+            .Filter(r => r.AudiobookshelfMediaSourceId == audiobookshelfMediaSourceId)
+            .Include(npr => npr.AudiobookshelfMediaSource)
+            .ToListAsync();
+    }
+
+    public async Task<List<int>> DeleteAllAudiobookshelf()
+    {
+        await using TvContext dbContext = await dbContextFactory.CreateDbContextAsync();
+
+        List<AudiobookshelfMediaSource> allMediaSources = await dbContext.AudiobookshelfMediaSources.ToListAsync();
+        var mediaSourceIds = allMediaSources.Map(ms => ms.Id).ToList();
+        dbContext.AudiobookshelfMediaSources.RemoveRange(allMediaSources);
+
+        List<AudiobookshelfLibrary> allAudiobookshelfLibraries = await dbContext.AudiobookshelfLibraries
+            .Where(l => mediaSourceIds.Contains(l.MediaSourceId))
+            .ToListAsync();
+        var libraryIds = allAudiobookshelfLibraries.Map(l => l.Id).ToList();
+        dbContext.AudiobookshelfLibraries.RemoveRange(allAudiobookshelfLibraries);
+
+        List<int> deletedMediaIds = await dbContext.MediaItems
+            .Filter(mi => libraryIds.Contains(mi.LibraryPath.LibraryId))
+            .Map(mi => mi.Id)
+            .ToListAsync();
+
+        await dbContext.SaveChangesAsync();
+
+        return deletedMediaIds;
+    }
+
     public async Task<Unit> UpsertEmby(string address, string serverName, string operatingSystem)
     {
         await using TvContext dbContext = await dbContextFactory.CreateDbContextAsync();
