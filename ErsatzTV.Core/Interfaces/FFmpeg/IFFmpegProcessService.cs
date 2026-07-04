@@ -124,5 +124,6 @@ public interface IFFmpegProcessService
         TimeSpan inPoint,
         TimeSpan ptsOffset,
         bool hlsRealtime,
+        bool isLiveInput,
         CancellationToken cancellationToken);
 }

@@ -1214,6 +1214,7 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
         TimeSpan inPoint,
         TimeSpan ptsOffset,
         bool hlsRealtime,
+        bool isLiveInput,
         CancellationToken cancellationToken)
     {
         // audio-only channels bypass the video pipeline builder entirely; the
@@ -1255,12 +1256,13 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
             "-loglevel", "error"
         };
 
-        if (hlsRealtime)
+        // live inputs pace themselves and cannot be seeked
+        if (hlsRealtime && !isLiveInput)
         {
             arguments.AddRange(["-readrate", "1.0"]);
         }
 
-        if (seek > TimeSpan.Zero)
+        if (seek > TimeSpan.Zero && !isLiveInput)
         {
             arguments.AddRange(["-ss", $"{seek:c}"]);
         }

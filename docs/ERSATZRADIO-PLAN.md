@@ -82,3 +82,15 @@ STILL TODO session 4: media sources UI page for navidrome (add/edit/secrets/path
 - Playout handler: audio-only branch skips SongVideoGenerator + watermarks/subtitles machinery entirely
 - HLS session lifecycle untouched (worker just watches live.m3u8 + segments)
 KNOWN RISKS: (1) untested ffmpeg arg fidelity - expect log-driven fixes; (2) if IptvController emits a master playlist with video codec attrs, audio-only variants may need a codecs fix there; (3) error/offline path still generates VIDEO error cards - audio-only silence (anullsrc) error process is TODO; (4) direct MP3/icecast endpoint TODO
+
+### Session 5 (2026-07-04): audiobookshelf part 1 (branch feature/audiobookshelf)
+Freebie included: audio-only playout now guards live inputs (no -ss / -readrate for RemoteStream IsLive) so internet radio restreams work on radio channels.
+ABS design decisions:
+- Auth: Bearer token in Authorization header (RemoteMediaSourceSecrets.ApiKey stores the token; no username needed)
+- Book libraries: /api/libraries/{id}/authors -> Shows (ItemId "author:{id}", tag "audiobook-author"); books filtered via filter=authors.{base64 id} ordered by (publishedYear,title) -> Seasons (ItemId = book libraryItem id, SeasonNumber = order index); /api/items/{bookId}?expanded=1 audioFiles -> Episodes (ItemId "{bookId}:t{index}", EpisodeNumber = track order)
+- Podcast libraries: podcasts -> Shows (ItemId "podcast:{id}", tags "podcast" + "podcast-episodic"/"podcast-serial" for smart collections), synthetic Season 1, media.episodes ordered by publishedAt -> Episodes (ItemId "pe:{episodeId}")
+- Ebook libraries skipped (mediaType filter)
+- Etags: sha256 over ids + updatedAt (+ counts/paths); library items use ABS updatedAt ms timestamps
+- Paths: ABS returns absolute container paths in audioFile metadata; resolve to local at scan time like navidrome (part 2 scanner will apply replacements before storage)
+DONE part 1: domain (MediaSource/Connection/PathReplacement/Library w AbsMediaType, Show/Season/Episode), core (ConnectionParameters/Secrets/ServerInformation/ItemEtag/PathReplacementService), interfaces (api client/secret store/path service/tv scanner/IAudiobookshelfTelevisionRepository over existing generic IMediaServerTelevisionRepository), infrastructure (models incl flexible converter, api client, secret store), FileSystemLayout secrets path.
+PART 2 TODO (mirror navidrome parts 2-3 + jellyfin television): TvContext DbSets + EF configs + migrations (user: ./scripts/add-migration.sh Add_Audiobookshelf), AudiobookshelfTelevisionRepository (model on JellyfinTelevisionRepository), scanner class over MediaServerTelevisionLibraryScanner base w/ scan-time path resolution, scanner worker command "scan-audiobookshelf" + handler + DI both processes, app-layer commands (secrets/sync/preferences/path replacements) + controller /api/audiobookshelf/*, ScannerService channel cases, Libraries page filter+mapper+viewmodel+scan case.

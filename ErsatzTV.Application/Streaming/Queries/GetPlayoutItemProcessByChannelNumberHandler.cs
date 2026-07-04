@@ -449,6 +449,7 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
                     inPoint,
                     request.PtsOffset,
                     effectiveRealtime,
+                    playoutItemWithPath.PlayoutItem.MediaItem is RemoteStream { IsLive: true },
                     cancellationToken);
             }
             else
