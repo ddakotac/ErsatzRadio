@@ -75,3 +75,10 @@ STILL TODO session 4: media sources UI page for navidrome (add/edit/secrets/path
 - ScannerService channel consumer: navidrome cases added (was throwing NotSupportedException)
 - Navidrome native api returns paths RELATIVE TO LIBRARY ROOT (no /music prefix); correct replacement is empty NavidromePath prefix + LocalPath=/media/shared/Music (prepend)
 - ARCHITECTURE DECISION: navidrome paths resolved to LOCAL paths at scan time and stored locally (like local libraries), NOT at playout time. Playout/media cards/troubleshooting need zero navidrome-specific logic. CONSEQUENCE: after changing a path replacement, run a DEEP scan to rewrite stored paths (non-deep scans skip unchanged etags and leave stale paths).
+
+### Session 4 (2026-07-04): audio-only channel mode (branch feature/audio-channels)
+- ChannelSongVideoMode.AudioOnly = 2 (no migration needed; existing int column + existing channel editor dropdown)
+- IFFmpegProcessService.ForAudioOnlyPlayoutItem + impl in FFmpegLibraryProcessService: bypasses the video pipeline builder (which asserts exactly one video stream); assembles ffmpeg args directly mirroring OutputFormatHls arg shapes (hls_time 4, segment template live%06d.ts, append_list/discont_start/independent_segments/program_date_time/omit_endlist, mpegts_flags initial_discontinuity on first transcode, latm for AacLatm), -map 0:a -vn, aac/ac3/copy from profile, apad to slot duration, -t limit, -output_ts_offset, -readrate 1.0 when realtime
+- Playout handler: audio-only branch skips SongVideoGenerator + watermarks/subtitles machinery entirely
+- HLS session lifecycle untouched (worker just watches live.m3u8 + segments)
+KNOWN RISKS: (1) untested ffmpeg arg fidelity - expect log-driven fixes; (2) if IptvController emits a master playlist with video codec attrs, audio-only variants may need a codecs fix there; (3) error/offline path still generates VIDEO error cards - audio-only silence (anullsrc) error process is TODO; (4) direct MP3/icecast endpoint TODO

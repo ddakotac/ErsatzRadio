@@ -1,7 +1,8 @@
-namespace ErsatzTV.Core.Domain;
+﻿namespace ErsatzTV.Core.Domain;
 
 public enum ChannelSongVideoMode
 {
     Default = 0,
-    WithProgress = 1
+    WithProgress = 1,
+    AudioOnly = 2
 }

@@ -270,6 +270,7 @@ else
     <MudSelect @bind-Value="_model.SongVideoMode" For="@(() => _model.SongVideoMode)">
         <MudSelectItem Value="@(ChannelSongVideoMode.Default)">Default</MudSelectItem>
         <MudSelectItem Value="@(ChannelSongVideoMode.WithProgress)">With Progress</MudSelectItem>
+        <MudSelectItem Value="@(ChannelSongVideoMode.AudioOnly)">Audio Only (Radio)</MudSelectItem>
     </MudSelect>
 </MudStack>
 <MudStack Row="true" Breakpoint="Breakpoint.SmAndDown" Class="form-field-stack gap-md-8 mb-5">

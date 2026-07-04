@@ -1,4 +1,5 @@
 ﻿using System.Collections.Immutable;
+using System.Globalization;
 using System.Text;
 using CliWrap;
 using CliWrap.Buffered;
@@ -1199,6 +1200,149 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
         FFmpegPipeline pipeline = pipelineBuilder.Seek(inputFile, codec, seek);
 
         return GetCommand(ffmpegPath, videoInputFile, None, None, None, None, pipeline, false);
+    }
+
+
+    public Task<PlayoutItemResult> ForAudioOnlyPlayoutItem(
+        string ffmpegPath,
+        Channel channel,
+        MediaItemAudioVersion audioVersion,
+        string audioPath,
+        DateTimeOffset start,
+        DateTimeOffset finish,
+        DateTimeOffset now,
+        TimeSpan inPoint,
+        TimeSpan ptsOffset,
+        bool hlsRealtime,
+        CancellationToken cancellationToken)
+    {
+        // audio-only channels bypass the video pipeline builder entirely; the
+        // command is assembled directly, mirroring the argument shapes used by
+        // the normal hls output path
+        FFmpegProfile profile = channel.FFmpegProfile;
+
+        TimeSpan seek = inPoint + (now - start);
+        if (seek < inPoint)
+        {
+            seek = inPoint;
+        }
+
+        TimeSpan limit = finish - now;
+        if (limit < TimeSpan.FromSeconds(1))
+        {
+            limit = TimeSpan.FromSeconds(1);
+        }
+
+        string audioCodec = profile.AudioFormat switch
+        {
+            FFmpegProfileAudioFormat.Ac3 => "ac3",
+            FFmpegProfileAudioFormat.Copy => "copy",
+            _ => "aac"
+        };
+
+        string transcodeFolder = Path.Combine(FileSystemLayout.TranscodeFolder, channel.Number);
+        Directory.CreateDirectory(transcodeFolder);
+        string playlistPath = Path.Combine(transcodeFolder, "live.m3u8");
+        string segmentTemplate = Path.Combine(transcodeFolder, "live%06d.ts");
+
+        bool isFirstTranscode = ptsOffset == TimeSpan.Zero;
+
+        var arguments = new List<string>
+        {
+            "-nostdin",
+            "-hide_banner",
+            "-nostats",
+            "-loglevel", "error"
+        };
+
+        if (hlsRealtime)
+        {
+            arguments.AddRange(["-readrate", "1.0"]);
+        }
+
+        if (seek > TimeSpan.Zero)
+        {
+            arguments.AddRange(["-ss", $"{seek:c}"]);
+        }
+
+        arguments.AddRange(["-i", audioPath]);
+
+        arguments.AddRange(
+        [
+            "-map", "0:a",
+            "-vn", "-sn", "-dn",
+            "-map_metadata", "-1",
+            "-map_chapters", "-1",
+            "-c:a", audioCodec
+        ]);
+
+        if (audioCodec != "copy")
+        {
+            arguments.AddRange(
+            [
+                "-b:a", $"{profile.AudioBitrate}k",
+                "-maxrate:a", $"{profile.AudioBitrate}k",
+                "-bufsize:a", $"{profile.AudioBufferSize}k",
+                "-ar", $"{profile.AudioSampleRate}k",
+                "-ac", profile.AudioChannels.ToString(CultureInfo.InvariantCulture),
+                "-af",
+                $"apad=whole_dur={limit.TotalSeconds.ToString(NumberFormatInfo.InvariantInfo)}s"
+            ]);
+        }
+
+        arguments.AddRange(
+        [
+            "-t", $"{(int)limit.TotalHours:00}:{limit:mm}:{limit:ss\\.fffffff}",
+            "-output_ts_offset", $"{ptsOffset.TotalSeconds.ToString(NumberFormatInfo.InvariantInfo)}s",
+            "-muxdelay", "0",
+            "-muxpreload", "0"
+        ]);
+
+        arguments.AddRange(
+        [
+            "-f", "hls",
+            "-hls_time", "4",
+            "-hls_list_size", "0",
+            "-segment_list_flags", "+live",
+            "-hls_segment_filename", segmentTemplate,
+            "-hls_segment_type", "mpegts"
+        ]);
+
+        var mpegtsFlags = string.Empty;
+        if (isFirstTranscode)
+        {
+            mpegtsFlags += "+initial_discontinuity";
+        }
+
+        if (profile.AudioFormat == FFmpegProfileAudioFormat.AacLatm)
+        {
+            mpegtsFlags += "+latm";
+        }
+
+        if (!string.IsNullOrWhiteSpace(mpegtsFlags))
+        {
+            arguments.AddRange(["-hls_segment_options", $"mpegts_flags={mpegtsFlags}"]);
+        }
+
+        string hlsFlags = isFirstTranscode
+            ? "program_date_time+omit_endlist+append_list+independent_segments"
+            : "program_date_time+omit_endlist+append_list+discont_start+independent_segments";
+
+        arguments.AddRange(["-hls_flags", hlsFlags, playlistPath]);
+
+        _logger.LogDebug("Audio-only ffmpeg arguments {FFmpegArguments}", arguments);
+
+        Command process = Cli.Wrap(ffmpegPath)
+            .WithArguments(arguments)
+            .WithValidation(CommandResultValidation.None)
+            .WithStandardErrorPipe(PipeTarget.ToStream(Stream.Null));
+
+        var result = new PlayoutItemResult(
+            process,
+            Option<GraphicsEngineContext>.None,
+            Optional(audioVersion.MediaItem?.Id ?? 0).Filter(id => id > 0));
+
+        return Task.FromResult(result);
     }
 
     private Command GetCommand(

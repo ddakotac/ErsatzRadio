@@ -113,4 +113,16 @@ public interface IFFmpegProcessService
         string codec,
         TimeSpan seek,
         CancellationToken cancellationToken);
+    Task<PlayoutItemResult> ForAudioOnlyPlayoutItem(
+        string ffmpegPath,
+        Channel channel,
+        MediaItemAudioVersion audioVersion,
+        string audioPath,
+        DateTimeOffset start,
+        DateTimeOffset finish,
+        DateTimeOffset now,
+        TimeSpan inPoint,
+        TimeSpan ptsOffset,
+        bool hlsRealtime,
+        CancellationToken cancellationToken);
 }

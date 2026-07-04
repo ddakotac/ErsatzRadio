@@ -371,7 +371,8 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
                 playoutItemWithPath.PlayoutItem,
                 now);
 
-            if (playoutItemWithPath.PlayoutItem.MediaItem is Song song)
+            if (channel.SongVideoMode is not ChannelSongVideoMode.AudioOnly &&
+                playoutItemWithPath.PlayoutItem.MediaItem is Song song)
             {
                 (videoPath, videoVersion) = await _songVideoGenerator.GenerateSongVideo(
                     song,
@@ -434,7 +435,25 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
                 effectiveNow,
                 duration);
 
-            PlayoutItemResult playoutItemResult = await _ffmpegProcessService.ForPlayoutItem(
+            PlayoutItemResult playoutItemResult;
+            if (channel.SongVideoMode is ChannelSongVideoMode.AudioOnly)
+            {
+                playoutItemResult = await _ffmpegProcessService.ForAudioOnlyPlayoutItem(
+                    ffmpegPath,
+                    channel,
+                    new MediaItemAudioVersion(playoutItemWithPath.PlayoutItem.MediaItem, audioVersion),
+                    audioPath,
+                    start,
+                    finish,
+                    effectiveNow,
+                    inPoint,
+                    request.PtsOffset,
+                    effectiveRealtime,
+                    cancellationToken);
+            }
+            else
+            {
+            playoutItemResult = await _ffmpegProcessService.ForPlayoutItem(
                 ffmpegPath,
                 ffprobePath,
                 saveReports,
@@ -471,6 +490,7 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
                 _ => { },
                 canProxy: true,
                 cancellationToken);
+            }
 
             var result = new PlayoutItemProcessModel(
                 playoutItemResult.Process,
