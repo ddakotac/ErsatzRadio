@@ -1,6 +1,28 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace ErsatzTV.Infrastructure.Navidrome.Models;
+
+/// <summary>
+/// subsonic servers are inconsistent about id types; navidrome returns music
+/// folder ids as json numbers while song/album ids are strings. read both.
+/// </summary>
+public class FlexibleStringConverter : JsonConverter<string>
+{
+    public override string Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        reader.TokenType switch
+        {
+            JsonTokenType.Number => reader.TryGetInt64(out long l)
+                ? l.ToString()
+                : reader.GetDouble().ToString(System.Globalization.CultureInfo.InvariantCulture),
+            JsonTokenType.String => reader.GetString(),
+            JsonTokenType.Null => null,
+            _ => throw new JsonException($"Unexpected token {reader.TokenType} for string")
+        };
+
+    public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(value);
+}
 
 public class SubsonicResponseWrapper
 {
@@ -53,6 +75,7 @@ public class SubsonicMusicFolders
 public class SubsonicMusicFolder
 {
     [JsonPropertyName("id")]
+    [JsonConverter(typeof(FlexibleStringConverter))]
     public string Id { get; set; }
 
     [JsonPropertyName("name")]
@@ -68,6 +91,7 @@ public class SubsonicAlbumList2
 public class SubsonicAlbum
 {
     [JsonPropertyName("id")]
+    [JsonConverter(typeof(FlexibleStringConverter))]
     public string Id { get; set; }
 
     [JsonPropertyName("name")]
@@ -77,6 +101,7 @@ public class SubsonicAlbum
     public string Artist { get; set; }
 
     [JsonPropertyName("artistId")]
+    [JsonConverter(typeof(FlexibleStringConverter))]
     public string ArtistId { get; set; }
 
     [JsonPropertyName("year")]
@@ -95,6 +120,7 @@ public class SubsonicAlbum
 public class SubsonicSong
 {
     [JsonPropertyName("id")]
+    [JsonConverter(typeof(FlexibleStringConverter))]
     public string Id { get; set; }
 
     [JsonPropertyName("title")]
@@ -107,9 +133,11 @@ public class SubsonicSong
     public string Artist { get; set; }
 
     [JsonPropertyName("albumId")]
+    [JsonConverter(typeof(FlexibleStringConverter))]
     public string AlbumId { get; set; }
 
     [JsonPropertyName("artistId")]
+    [JsonConverter(typeof(FlexibleStringConverter))]
     public string ArtistId { get; set; }
 
     [JsonPropertyName("track")]
