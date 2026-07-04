@@ -1,8 +1,9 @@
-using System.Threading.Channels;
+﻿using System.Threading.Channels;
 using ErsatzTV.Application;
 using ErsatzTV.Application.Emby;
 using ErsatzTV.Application.Jellyfin;
 using ErsatzTV.Application.MediaSources;
+using ErsatzTV.Application.Navidrome;
 using ErsatzTV.Application.Plex;
 using ErsatzTV.Core;
 using ErsatzTV.Core.Errors;
@@ -76,6 +77,12 @@ public class ScannerService : BackgroundService
                             break;
                         case SynchronizeEmbyCollections synchronizeEmbyCollections:
                             requestTask = SynchronizeEmbyCollections(synchronizeEmbyCollections, stoppingToken);
+                            break;
+                        case SynchronizeNavidromeLibraries synchronizeNavidromeLibraries:
+                            requestTask = SynchronizeLibraries(synchronizeNavidromeLibraries, stoppingToken);
+                            break;
+                        case ISynchronizeNavidromeLibraryById synchronizeNavidromeLibraryById:
+                            requestTask = SynchronizeNavidromeLibrary(synchronizeNavidromeLibraryById, stoppingToken);
                             break;
                         case IScanLocalLibrary scanLocalLibrary:
                             requestTask = SynchronizeLocalLibrary(scanLocalLibrary, stoppingToken);
@@ -398,6 +405,55 @@ public class ScannerService : BackgroundService
         if (entityLocker.AreEmbyCollectionsLocked())
         {
             entityLocker.UnlockEmbyCollections();
+        }
+    }
+    private async Task SynchronizeLibraries(SynchronizeNavidromeLibraries request, CancellationToken cancellationToken)
+    {
+        using IServiceScope scope = _serviceScopeFactory.CreateScope();
+        IMediator mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+
+        Either<BaseError, Unit> result = await mediator.Send(request, cancellationToken);
+        result.BiIter(
+            _ => _logger.LogDebug(
+                "Done synchronizing navidrome libraries for media source {MediaSourceId}",
+                request.NavidromeMediaSourceId),
+            error => _logger.LogWarning(
+                "Unable to synchronize navidrome libraries for media source {MediaSourceId}: {Error}",
+                request.NavidromeMediaSourceId,
+                error.Value));
+    }
+
+    private async Task SynchronizeNavidromeLibrary(
+        ISynchronizeNavidromeLibraryById request,
+        CancellationToken cancellationToken)
+    {
+        using IServiceScope scope = _serviceScopeFactory.CreateScope();
+        IMediator mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        IEntityLocker entityLocker = scope.ServiceProvider.GetRequiredService<IEntityLocker>();
+
+        Either<BaseError, string> result = await mediator.Send(request, cancellationToken);
+        result.BiIter(
+            name => _logger.LogDebug("Done synchronizing navidrome library {Name}", name),
+            error =>
+            {
+                if (error is ScanIsNotRequired)
+                {
+                    _logger.LogDebug(
+                        "Scan is not required for navidrome library {LibraryId} at this time",
+                        request.NavidromeLibraryId);
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "Unable to synchronize navidrome library {LibraryId}: {Error}",
+                        request.NavidromeLibraryId,
+                        error.Value);
+                }
+            });
+
+        if (entityLocker.IsLibraryLocked(request.NavidromeLibraryId))
+        {
+            entityLocker.UnlockLibrary(request.NavidromeLibraryId);
         }
     }
 }
