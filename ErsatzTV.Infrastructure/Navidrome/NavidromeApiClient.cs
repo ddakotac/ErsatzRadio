@@ -186,7 +186,17 @@ public class NavidromeApiClient : INavidromeApiClient
                         PathHash = PathUtils.GetPathHash(item.Path)
                     }
                 ],
-                Streams = [],
+                Streams =
+                [
+                    new MediaStream
+                    {
+                        Index = 0,
+                        MediaStreamKind = MediaStreamKind.Audio,
+                        Codec = (item.Suffix ?? string.Empty).ToLowerInvariant(),
+                        Channels = 2,
+                        Default = true
+                    }
+                ],
                 Chapters = []
             };
 

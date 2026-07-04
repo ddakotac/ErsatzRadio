@@ -1,9 +1,10 @@
-using System.CommandLine;
+﻿using System.CommandLine;
 using System.Diagnostics;
 using ErsatzTV.Scanner.Application.Emby;
 using ErsatzTV.Scanner.Application.FFmpeg;
 using ErsatzTV.Scanner.Application.Jellyfin;
 using ErsatzTV.Scanner.Application.MediaSources;
+using ErsatzTV.Scanner.Application.Navidrome;
 using ErsatzTV.Scanner.Application.Plex;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -122,6 +123,12 @@ public class Worker : BackgroundService
         scanJellyfinCollectionsCommand.Arguments.Add(baseUrlArgument);
         scanJellyfinCollectionsCommand.Options.Add(forceOption);
         scanJellyfinCollectionsCommand.Options.Add(deepOption);
+
+        var scanNavidromeCommand = new Command("scan-navidrome", "Scan a Navidrome library");
+        scanNavidromeCommand.Arguments.Add(libraryIdArgument);
+        scanNavidromeCommand.Arguments.Add(baseUrlArgument);
+        scanNavidromeCommand.Options.Add(forceOption);
+        scanNavidromeCommand.Options.Add(deepOption);
 
         // Show-specific scanning commands
         var showIdArgument = new Argument<int>("show-id")
@@ -308,6 +315,29 @@ public class Worker : BackgroundService
             }
         });
 
+        scanNavidromeCommand.SetAction(async (parseResult, token) =>
+        {
+            if (IsScanningEnabled())
+            {
+                bool force = parseResult.GetValue(forceOption);
+                SetProcessPriority(force);
+
+                bool deep = parseResult.GetValue(deepOption);
+                int libraryId = parseResult.GetValue(libraryIdArgument);
+                string? baseUrl = parseResult.GetValue(baseUrlArgument);
+                if (baseUrl is null)
+                {
+                    return;
+                }
+
+                using IServiceScope scope = _serviceScopeFactory.CreateScope();
+                IMediator mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+
+                var scan = new SynchronizeNavidromeLibraryById(baseUrl, libraryId, force, deep);
+                await mediator.Send(scan, token);
+            }
+        });
+
         scanJellyfinCollectionsCommand.SetAction(async (parseResult, token) =>
         {
             if (IsScanningEnabled())
@@ -403,6 +433,7 @@ public class Worker : BackgroundService
         rootCommand.Subcommands.Add(scanEmbyCollectionsCommand);
         rootCommand.Subcommands.Add(scanJellyfinCommand);
         rootCommand.Subcommands.Add(scanJellyfinCollectionsCommand);
+        rootCommand.Subcommands.Add(scanNavidromeCommand);
         rootCommand.Subcommands.Add(scanPlexShowCommand);
         rootCommand.Subcommands.Add(scanEmbyShowCommand);
         rootCommand.Subcommands.Add(scanJellyfinShowCommand);

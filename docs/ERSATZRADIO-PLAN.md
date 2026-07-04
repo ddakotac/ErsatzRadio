@@ -12,7 +12,7 @@ Sources: Navidrome (music) + Audiobookshelf (audiobooks/podcasts) + local + live
 - Navidrome auth: subsonic token (u, t=md5(pw+salt), s, v=1.16.1, c=ErsatzRadio, f=json)
 
 ## Build order
-1. Navidrome scanner (IN PROGRESS)
+1. Navidrome scanner (CODE COMPLETE - needs migration + testing)
 2. Audio-only channel mode (HLS audio; skip SongVideoGenerator)
 3. Audiobookshelf scanner (Author=Show, Book=Season, Chapter=Episode; serial/episodic flag)
 4. Icecast/direct MP3 endpoint
@@ -40,3 +40,24 @@ NEXT SESSION (Navidrome part 2 — DB + scanner):
 - Search index integration for NavidromeSong
 
 NOTE: sandbox NuGet blocked (403) — ask user to allowlist api.nuget.org, nuget.org, globalcdn.nuget.org in Claude network settings for compile verification
+
+### Session 2 (2026-07-04): Navidrome full vertical
+DONE (branch feature/navidrome-scanner):
+- TvContext DbSets + 5 EF configurations (NavidromeMediaSource/Connection/PathReplacement/Library/Song tables)
+- IMediaSourceRepository + MediaSourceRepository: full Navidrome method set (Upsert, GetAll, Get, libraries, path replacements, enable/disable sync, UpdateLibraries overload, DeleteAll)
+- NavidromeSongRepository (GetOrAdd/etag diff/flag states, modeled on JellyfinMovieRepository)
+- MediaServerSongLibraryScanner generic base (new; no remote-streaming path, no subtitles/chapters)
+- NavidromeSongLibraryScanner (statistics from subsonic data incl. audio MediaStream built in API client projection)
+- Scanner: SynchronizeNavidromeLibraryById cmd+handler, Worker "scan-navidrome" command, Program DI
+- Main app: ISynchronizeNavidromeLibraryById cmds, CallNavidromeLibraryScannerHandler, SaveNavidromeSecrets, SynchronizeNavidromeLibraries, UpdateNavidromeLibraryPreferences, queries + view models, Startup DI
+- NavidromeController: temporary REST api (secrets/sources/libraries/preferences/scan) for curl testing until Blazor UI exists
+- Search index: no changes needed (case Song matches NavidromeSong)
+
+USER MUST RUN: ./scripts/add-migration.sh Add_Navidrome  (generates Sqlite + MySql migrations; requires dotnet-ef tool: dotnet tool install -g dotnet-ef)
+
+NEXT SESSION (session 3):
+- Fix any build errors from session 2 patch
+- Verify end-to-end: secrets -> library sync -> song scan -> songs visible in UI search/collections
+- Blazor UI pages for Navidrome (mirror Pages/MediaSources jellyfin pages) OR proceed to audio-only channel mode first (user priority call)
+- Scheduled periodic scans (ScannerService wiring for SynchronizeNavidromeLibraryByIdIfNeeded)
+- Artwork sync from subsonic getCoverArt

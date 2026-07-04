@@ -730,6 +730,240 @@ public class MediaSourceRepository(IDbContextFactory<TvContext> dbContextFactory
         return deletedMediaIds;
     }
 
+
+    public async Task<List<int>> UpdateLibraries(
+        int navidromeMediaSourceId,
+        List<NavidromeLibrary> toAdd,
+        List<NavidromeLibrary> toDelete,
+        List<NavidromeLibrary> toUpdate,
+        CancellationToken cancellationToken)
+    {
+        await using TvContext dbContext = await dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        foreach (NavidromeLibrary add in toAdd)
+        {
+            add.MediaSourceId = navidromeMediaSourceId;
+            dbContext.Entry(add).State = EntityState.Added;
+            foreach (LibraryPath path in add.Paths)
+            {
+                dbContext.Entry(path).State = EntityState.Added;
+            }
+        }
+
+        var libraryIds = toDelete.Map(l => l.Id).ToList();
+        List<int> deletedMediaIds = await dbContext.MediaItems
+            .Filter(mi => libraryIds.Contains(mi.LibraryPath.LibraryId))
+            .Map(mi => mi.Id)
+            .ToListAsync(cancellationToken);
+
+        foreach (NavidromeLibrary delete in toDelete)
+        {
+            dbContext.NavidromeLibraries.Remove(delete);
+        }
+
+        foreach (NavidromeLibrary incoming in toUpdate)
+        {
+            Option<NavidromeLibrary> maybeExisting = await dbContext.NavidromeLibraries
+                .Include(l => l.Paths)
+                .SingleOrDefaultAsync(
+                    l => l.ItemId == incoming.ItemId && l.MediaSourceId == navidromeMediaSourceId,
+                    cancellationToken);
+
+            foreach (NavidromeLibrary existingLibrary in maybeExisting)
+            {
+                existingLibrary.Name = incoming.Name;
+            }
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return deletedMediaIds;
+    }
+
+    public async Task<Unit> UpsertNavidrome(string address, string serverName)
+    {
+        await using TvContext dbContext = await dbContextFactory.CreateDbContextAsync();
+        Option<NavidromeMediaSource> maybeExisting = dbContext.NavidromeMediaSources
+            .Include(ms => ms.Connections)
+            .OrderBy(ms => ms.Id)
+            .HeadOrNone();
+
+        return await maybeExisting.Match(
+            async navidromeMediaSource =>
+            {
+                if (navidromeMediaSource.Connections.Count == 0)
+                {
+                    navidromeMediaSource.Connections.Add(new NavidromeConnection { Address = address });
+                }
+                else if (navidromeMediaSource.Connections.Head().Address != address)
+                {
+                    navidromeMediaSource.Connections.Head().Address = address;
+                }
+
+                if (navidromeMediaSource.ServerName != serverName)
+                {
+                    navidromeMediaSource.ServerName = serverName;
+                }
+
+                await dbContext.SaveChangesAsync();
+
+                return Unit.Default;
+            },
+            async () =>
+            {
+                var mediaSource = new NavidromeMediaSource
+                {
+                    ServerName = serverName,
+                    Connections = new List<NavidromeConnection>
+                    {
+                        new() { Address = address }
+                    },
+                    PathReplacements = new List<NavidromePathReplacement>()
+                };
+
+                await dbContext.AddAsync(mediaSource);
+                await dbContext.SaveChangesAsync();
+
+                return Unit.Default;
+            });
+    }
+
+    public async Task<List<NavidromeMediaSource>> GetAllNavidrome(CancellationToken cancellationToken)
+    {
+        await using TvContext context = await dbContextFactory.CreateDbContextAsync(cancellationToken);
+        return await context.NavidromeMediaSources
+            .AsNoTracking()
+            .Include(p => p.Connections)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<Option<NavidromeMediaSource>> GetNavidrome(int id)
+    {
+        await using TvContext context = await dbContextFactory.CreateDbContextAsync();
+        return await context.NavidromeMediaSources
+            .Include(p => p.Connections)
+            .Include(p => p.Libraries)
+            .Include(p => p.PathReplacements)
+            .OrderBy(p => p.Id)
+            .SingleOrDefaultAsync(p => p.Id == id)
+            .Map(Optional);
+    }
+
+    public async Task<List<NavidromeLibrary>> GetNavidromeLibraries(int navidromeMediaSourceId)
+    {
+        await using TvContext context = await dbContextFactory.CreateDbContextAsync();
+        return await context.NavidromeLibraries
+            .Filter(l => l.MediaSourceId == navidromeMediaSourceId)
+            .ToListAsync();
+    }
+
+    public async Task<Unit> EnableNavidromeLibrarySync(IEnumerable<int> libraryIds)
+    {
+        await using TvContext dbContext = await dbContextFactory.CreateDbContextAsync();
+        return await dbContext.Connection.ExecuteAsync(
+            "UPDATE NavidromeLibrary SET ShouldSyncItems = 1 WHERE Id IN @ids",
+            new { ids = libraryIds }).ToUnit();
+    }
+
+    public async Task<List<int>> DisableNavidromeLibrarySync(List<int> libraryIds)
+    {
+        await using TvContext dbContext = await dbContextFactory.CreateDbContextAsync();
+
+        List<int> deletedMediaIds = await dbContext.MediaItems
+            .Filter(mi => libraryIds.Contains(mi.LibraryPath.LibraryId))
+            .Map(mi => mi.Id)
+            .ToListAsync();
+
+        List<NavidromeLibrary> libraries = await dbContext.NavidromeLibraries
+            .Include(l => l.Paths)
+            .Filter(l => libraryIds.Contains(l.Id))
+            .ToListAsync();
+
+        dbContext.NavidromeLibraries.RemoveRange(libraries);
+        await dbContext.SaveChangesAsync();
+
+        foreach (NavidromeLibrary library in libraries)
+        {
+            library.Id = 0;
+            library.ShouldSyncItems = false;
+            library.LastScan = SystemTime.MinValueUtc;
+            foreach (LibraryPath path in library.Paths)
+            {
+                path.Id = 0;
+                path.LibraryId = 0;
+                path.LastScan = SystemTime.MinValueUtc;
+            }
+
+            await dbContext.NavidromeLibraries.AddAsync(library);
+        }
+
+        await dbContext.SaveChangesAsync();
+
+        return deletedMediaIds;
+    }
+
+    public async Task<Option<NavidromeLibrary>> GetNavidromeLibrary(int navidromeLibraryId)
+    {
+        await using TvContext context = await dbContextFactory.CreateDbContextAsync();
+        return await context.NavidromeLibraries
+            .Include(l => l.Paths)
+            .Include(l => l.MediaSource)
+            .OrderBy(l => l.Id) // https://github.com/dotnet/efcore/issues/22579
+            .SingleOrDefaultAsync(l => l.Id == navidromeLibraryId)
+            .Map(Optional);
+    }
+
+    public async Task<Option<NavidromeMediaSource>> GetNavidromeByLibraryId(int navidromeLibraryId)
+    {
+        await using TvContext dbContext = await dbContextFactory.CreateDbContextAsync();
+
+        int? id = await dbContext.Connection.QuerySingleOrDefaultAsync<int?>(
+            @"SELECT L.MediaSourceId FROM Library L
+                INNER JOIN NavidromeLibrary NL on L.Id = NL.Id
+                WHERE L.Id = @NavidromeLibraryId",
+            new { NavidromeLibraryId = navidromeLibraryId });
+
+        return await dbContext.NavidromeMediaSources
+            .Include(p => p.Connections)
+            .Include(p => p.Libraries)
+            .OrderBy(p => p.Id)
+            .SingleOrDefaultAsync(p => p.Id == id)
+            .Map(Optional);
+    }
+
+    public async Task<List<NavidromePathReplacement>> GetNavidromePathReplacements(int navidromeMediaSourceId)
+    {
+        await using TvContext dbContext = await dbContextFactory.CreateDbContextAsync();
+        return await dbContext.NavidromePathReplacements
+            .Filter(r => r.NavidromeMediaSourceId == navidromeMediaSourceId)
+            .Include(npr => npr.NavidromeMediaSource)
+            .ToListAsync();
+    }
+
+    public async Task<List<int>> DeleteAllNavidrome()
+    {
+        await using TvContext dbContext = await dbContextFactory.CreateDbContextAsync();
+
+        List<NavidromeMediaSource> allMediaSources = await dbContext.NavidromeMediaSources.ToListAsync();
+        var mediaSourceIds = allMediaSources.Map(ms => ms.Id).ToList();
+        dbContext.NavidromeMediaSources.RemoveRange(allMediaSources);
+
+        List<NavidromeLibrary> allNavidromeLibraries = await dbContext.NavidromeLibraries
+            .Where(l => mediaSourceIds.Contains(l.MediaSourceId))
+            .ToListAsync();
+        var libraryIds = allNavidromeLibraries.Map(l => l.Id).ToList();
+        dbContext.NavidromeLibraries.RemoveRange(allNavidromeLibraries);
+
+        List<int> deletedMediaIds = await dbContext.MediaItems
+            .Filter(mi => libraryIds.Contains(mi.LibraryPath.LibraryId))
+            .Map(mi => mi.Id)
+            .ToListAsync();
+
+        await dbContext.SaveChangesAsync();
+
+        return deletedMediaIds;
+    }
+
     public async Task<Unit> UpsertEmby(string address, string serverName, string operatingSystem)
     {
         await using TvContext dbContext = await dbContextFactory.CreateDbContextAsync();

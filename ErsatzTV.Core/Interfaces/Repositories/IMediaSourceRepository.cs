@@ -41,6 +41,13 @@ public interface IMediaSourceRepository
         List<EmbyLibrary> toUpdate,
         CancellationToken cancellationToken);
 
+    Task<List<int>> UpdateLibraries(
+        int navidromeMediaSourceId,
+        List<NavidromeLibrary> toAdd,
+        List<NavidromeLibrary> toDelete,
+        List<NavidromeLibrary> toUpdate,
+        CancellationToken cancellationToken);
+
     Task<Unit> UpdatePathReplacements(
         int plexMediaSourceId,
         List<PlexPathReplacement> toAdd,
@@ -73,6 +80,17 @@ public interface IMediaSourceRepository
         List<JellyfinPathReplacement> toDelete);
 
     Task<List<int>> DeleteAllJellyfin();
+
+    Task<Unit> UpsertNavidrome(string address, string serverName);
+    Task<List<NavidromeMediaSource>> GetAllNavidrome(CancellationToken cancellationToken);
+    Task<Option<NavidromeMediaSource>> GetNavidrome(int id);
+    Task<List<NavidromeLibrary>> GetNavidromeLibraries(int navidromeMediaSourceId);
+    Task<Unit> EnableNavidromeLibrarySync(IEnumerable<int> libraryIds);
+    Task<List<int>> DisableNavidromeLibrarySync(List<int> libraryIds);
+    Task<Option<NavidromeLibrary>> GetNavidromeLibrary(int navidromeLibraryId);
+    Task<Option<NavidromeMediaSource>> GetNavidromeByLibraryId(int navidromeLibraryId);
+    Task<List<NavidromePathReplacement>> GetNavidromePathReplacements(int navidromeMediaSourceId);
+    Task<List<int>> DeleteAllNavidrome();
 
     Task<Unit> UpsertEmby(string address, string serverName, string operatingSystem);
     Task<List<EmbyMediaSource>> GetAllEmby(CancellationToken cancellationToken);

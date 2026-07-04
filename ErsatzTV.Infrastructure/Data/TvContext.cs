@@ -1,4 +1,4 @@
-using System.Data;
+﻿using System.Data;
 using ErsatzTV.Core.Domain;
 using ErsatzTV.Core.Domain.Filler;
 using ErsatzTV.Core.Domain.Scheduling;
@@ -35,6 +35,7 @@ public class TvContext : DbContext
     public DbSet<LocalMediaSource> LocalMediaSources { get; set; }
     public DbSet<PlexMediaSource> PlexMediaSources { get; set; }
     public DbSet<JellyfinMediaSource> JellyfinMediaSources { get; set; }
+    public DbSet<NavidromeMediaSource> NavidromeMediaSources { get; set; }
     public DbSet<EmbyMediaSource> EmbyMediaSources { get; set; }
     public DbSet<Library> Libraries { get; set; }
     public DbSet<LocalLibrary> LocalLibraries { get; set; }
@@ -42,9 +43,11 @@ public class TvContext : DbContext
     public DbSet<LibraryFolder> LibraryFolders { get; set; }
     public DbSet<PlexLibrary> PlexLibraries { get; set; }
     public DbSet<JellyfinLibrary> JellyfinLibraries { get; set; }
+    public DbSet<NavidromeLibrary> NavidromeLibraries { get; set; }
     public DbSet<EmbyLibrary> EmbyLibraries { get; set; }
     public DbSet<PlexPathReplacement> PlexPathReplacements { get; set; }
     public DbSet<JellyfinPathReplacement> JellyfinPathReplacements { get; set; }
+    public DbSet<NavidromePathReplacement> NavidromePathReplacements { get; set; }
     public DbSet<EmbyPathReplacement> EmbyPathReplacements { get; set; }
     public DbSet<MediaItem> MediaItems { get; set; }
     public DbSet<MediaVersion> MediaVersions { get; set; }
@@ -80,6 +83,7 @@ public class TvContext : DbContext
     public DbSet<PlexSeason> PlexSeasons { get; set; }
     public DbSet<PlexEpisode> PlexEpisodes { get; set; }
     public DbSet<PlexCollection> PlexCollections { get; set; }
+    public DbSet<NavidromeSong> NavidromeSongs { get; set; }
     public DbSet<JellyfinMovie> JellyfinMovies { get; set; }
     public DbSet<JellyfinShow> JellyfinShows { get; set; }
     public DbSet<JellyfinSeason> JellyfinSeasons { get; set; }
