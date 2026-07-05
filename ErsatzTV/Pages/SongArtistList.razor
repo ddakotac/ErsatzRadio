@@ -1,0 +1,64 @@
+@page "/media/music/song-artists"
+@using ErsatzTV.Application.Songs
+@inherits FragmentNavigationBase
+@inject IMediator Mediator
+@inject NavigationManager NavigationManager
+
+<MudForm Style="max-height: 100%">
+    <div class="d-flex flex-column" style="height: 100vh; overflow-x: auto">
+        <MudContainer MaxWidth="MaxWidth.Large" Class="pt-8">
+            <MudText Typo="Typo.h4" Class="mb-4">Song Artists</MudText>
+            <MudTextField @bind-Value="_filter" Placeholder="Filter artists..." Immediate="true"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                          Class="mb-4" Clearable="true"/>
+            <MudTable Items="@FilteredArtists" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm"
+                      RowsPerPage="100" Loading="@_loading">
+                <HeaderContent>
+                    <MudTh>Artist</MudTh>
+                    <MudTh Style="text-align: right">Albums</MudTh>
+                    <MudTh Style="text-align: right">Songs</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Artist">
+                        <MudLink Href="@AlbumsLink(context.Name)">@context.Name</MudLink>
+                    </MudTd>
+                    <MudTd DataLabel="Albums" Style="text-align: right">@context.AlbumCount</MudTd>
+                    <MudTd DataLabel="Songs" Style="text-align: right">
+                        <MudLink Href="@SongsLink(context.Name)">@context.SongCount</MudLink>
+                    </MudTd>
+                </RowTemplate>
+                <PagerContent>
+                    <MudTablePager PageSizeOptions="new[] { 50, 100, 250 }"/>
+                </PagerContent>
+            </MudTable>
+        </MudContainer>
+    </div>
+</MudForm>
+
+@code {
+    private List<SongArtistViewModel> _artists = [];
+    private string _filter;
+    private bool _loading = true;
+
+    private IEnumerable<SongArtistViewModel> FilteredArtists =>
+        string.IsNullOrWhiteSpace(_filter)
+            ? _artists
+            : _artists.Where(a => a.Name.Contains(_filter, StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _artists = await Mediator.Send(new GetSongArtists(), CancellationToken);
+        _loading = false;
+    }
+
+    private static string AlbumsLink(string artist) =>
+        $"media/music/albums?artist={Uri.EscapeDataString(artist)}";
+
+    private static string SongsLink(string artist)
+    {
+        string escaped = artist.Replace("\"", "\\\"");
+        string query = $"(album_artist:\"{escaped}\" OR artist:\"{escaped}\")";
+        return $"media/music/songs?query={Uri.EscapeDataString(query)}";
+    }
+
+}

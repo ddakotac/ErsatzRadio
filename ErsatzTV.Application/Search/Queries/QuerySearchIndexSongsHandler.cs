@@ -32,6 +32,9 @@ public class QuerySearchIndexSongsHandler(ISearchIndex searchIndex, IDbContextFa
             .Include(sm => sm.Song)
             .ThenInclude(s => s.MediaVersions)
             .ThenInclude(mv => mv.MediaFiles)
+            .Include(sm => sm.Song)
+            .ThenInclude(s => s.LibraryPath)
+            .ThenInclude(lp => lp.Library)
             .OrderBy(ovm => ovm.SortTitle)
             .ToListAsync(cancellationToken)
             .Map(list => list.Map(ProjectToViewModel).ToList());

@@ -36,6 +36,8 @@ public class
             .Filter(sm => ids.Contains(sm.ShowId))
             .Include(sm => sm.Artwork)
             .Include(sm => sm.Show)
+            .ThenInclude(s => s.LibraryPath)
+            .ThenInclude(lp => lp.Library)
             .OrderBy(sm => sm.SortTitle)
             .ToListAsync(cancellationToken)
             .Map(list => list.Map(s => ProjectToViewModel(s, maybeJellyfin, maybeEmby)).ToList());

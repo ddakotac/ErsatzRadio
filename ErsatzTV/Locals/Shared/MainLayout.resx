@@ -51,6 +51,12 @@
     <data name="ButtonMediaSourcesNavidrome" xml:space="preserve">
         <value>Navidrome</value>
     </data>
+    <data name="ButtonMediaSongArtists" xml:space="preserve">
+        <value>Song Artists</value>
+    </data>
+    <data name="ButtonMediaAlbums" xml:space="preserve">
+        <value>Albums</value>
+    </data>
     <data name="ButtonMediaSourcesJellyfin" xml:space="preserve">
         <value>Jellyfin</value>
     </data>

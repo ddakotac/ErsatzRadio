@@ -1,5 +1,7 @@
 ﻿@page "/media/music/songs"
 @page "/media/music/songs/page/{PageNumber:int}"
+@using ErsatzTV.Application.Libraries
+@using ErsatzTV.Core.Domain
 @using ErsatzTV.Application.MediaCards
 @using ErsatzTV.Application.MediaCollections
 @using ErsatzTV.Application.Search
@@ -22,6 +24,14 @@
                         SelectAllOnPage="@(() => SelectAllPageItems(_data.Cards))"
                         IsSelectMode="@IsSelectMode"
                         SelectionLabel="@SelectionLabel"/>
+        <MudSelect T="int?" Value="@_selectedLibraryId" ValueChanged="@OnLibraryFilterChanged"
+                   Label="Library" Clearable="true" Dense="true" Margin="Margin.Dense"
+                   Style="max-width: 220px; margin: auto 8px; align-self: center;">
+            @foreach (LibraryViewModel library in _libraries)
+            {
+                <MudSelectItem T="int?" Value="@((int?)library.Id)">@library.Name</MudSelectItem>
+            }
+        </MudSelect>
     </MudPaper>
     <div class="d-flex flex-column" style="height: 100vh; overflow-x: auto">
         <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="pt-8">
@@ -55,6 +65,19 @@
     private SongCardResultsViewModel _data = new(0, new List<SongCardViewModel>(), null);
     private string _query;
 
+    private List<LibraryViewModel> _libraries = [];
+    private int? _selectedLibraryId;
+    private static readonly System.Text.RegularExpressions.Regex LibraryIdTerm =
+        new(@"\s*(AND\s+)?library_id:(\d+)\s*", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    protected override async Task OnInitializedAsync()
+    {
+        List<LibraryViewModel> all = await Mediator.Send(new GetConfiguredLibraries(), CancellationToken);
+        _libraries = all.Filter(l => l.MediaKind == LibraryMediaKind.Songs).OrderBy(l => l.Name).ToList();
+
+        await base.OnInitializedAsync();
+    }
+
     protected override async Task OnParametersSetAsync()
     {
         if (PageNumber == 0)
@@ -64,7 +87,34 @@
 
         _query = NavigationManager.Uri.GetSearchQuery();
 
+        System.Text.RegularExpressions.Match match = LibraryIdTerm.Match(_query ?? string.Empty);
+        _selectedLibraryId = match.Success && int.TryParse(match.Groups[2].Value, out int libraryId)
+            ? libraryId
+            : null;
+
         await RefreshData(CancellationToken);
+    }
+
+    private void OnLibraryFilterChanged(int? libraryId)
+    {
+        _selectedLibraryId = libraryId;
+
+        string query = LibraryIdTerm.Replace(_query ?? string.Empty, " ").Trim();
+        if (libraryId.HasValue)
+        {
+            query = string.IsNullOrWhiteSpace(query)
+                ? $"library_id:{libraryId.Value}"
+                : $"{query} AND library_id:{libraryId.Value}";
+        }
+
+        var uri = "media/music/songs";
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            (string key, string value) = query.EncodeQuery();
+            uri = $"{uri}?{key}={value}";
+        }
+
+        NavigationManager.NavigateTo(uri);
     }
 
     protected override async Task RefreshData(CancellationToken cancellationToken)
