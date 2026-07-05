@@ -30,6 +30,7 @@ public static class FileSystemLayout
     public static readonly string FFmpegReportsFolder;
     public static readonly string SearchIndexFolder;
     public static readonly string TempFilePoolFolder;
+    public static readonly string InterruptsFolder;
 
     public static readonly string ArtworkCacheFolder;
 
@@ -157,6 +158,7 @@ public static class FileSystemLayout
         FFmpegReportsFolder = Path.Combine(AppDataFolder, "ffmpeg-reports");
         SearchIndexFolder = Path.Combine(AppDataFolder, "search-index");
         TempFilePoolFolder = Path.Combine(AppDataFolder, "temp-pool");
+        InterruptsFolder = Path.Combine(AppDataFolder, "interrupts");
 
         ArtworkCacheFolder = Path.Combine(AppDataFolder, "cache", "artwork");
 

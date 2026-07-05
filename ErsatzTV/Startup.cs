@@ -34,6 +34,7 @@ using ErsatzTV.Core.Interfaces.Scheduling;
 using ErsatzTV.Core.Interfaces.Scripting;
 using ErsatzTV.Core.Interfaces.Search;
 using ErsatzTV.Core.Interfaces.Streaming;
+using ErsatzTV.Core.Interrupts;
 using ErsatzTV.Core.Interfaces.Trakt;
 using ErsatzTV.Core.Interfaces.Troubleshooting;
 using ErsatzTV.Core.Jellyfin;
@@ -360,6 +361,7 @@ public class Startup
             FileSystemLayout.AppDataFolder,
             FileSystemLayout.TranscodeFolder,
             FileSystemLayout.TempFilePoolFolder,
+            FileSystemLayout.InterruptsFolder,
             FileSystemLayout.FontsCacheFolder,
             FileSystemLayout.TemplatesFolder,
             FileSystemLayout.MusicVideoCreditsTemplatesFolder,
@@ -736,6 +738,7 @@ public class Startup
         services.AddSingleton<IScannerProxyService, ScannerProxyService>();
         services.AddSingleton<IScriptedPlayoutBuilderService, ScriptedPlayoutBuilderService>();
         services.AddSingleton<IFFmpegSegmenterService, FFmpegSegmenterService>();
+        services.AddSingleton<IChannelInterruptService, ChannelInterruptService>();
         services.AddSingleton<ITempFilePool, TempFilePool>();
         services.AddSingleton<IHlsPlaylistFilter, HlsPlaylistFilter>();
         services.AddSingleton<RecyclableMemoryStreamManager>();

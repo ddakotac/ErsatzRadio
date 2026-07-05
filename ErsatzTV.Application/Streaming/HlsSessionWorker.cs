@@ -16,6 +16,7 @@ using ErsatzTV.Core.Interfaces.FFmpeg;
 using ErsatzTV.Core.Interfaces.Metadata;
 using ErsatzTV.Core.Interfaces.Repositories;
 using ErsatzTV.Core.Interfaces.Streaming;
+using ErsatzTV.Core.Interrupts;
 using ErsatzTV.FFmpeg;
 using ErsatzTV.FFmpeg.OutputFormat;
 using Microsoft.Extensions.DependencyInjection;
@@ -40,7 +41,9 @@ public class HlsSessionWorker : IHlsSessionWorker
     private readonly SemaphoreSlim _slim = new(1, 1);
     private readonly Lock _sync = new();
     private readonly Option<FrameRate> _targetFramerate;
+    private readonly IChannelInterruptService _interruptQueue;
     private CancellationTokenSource _cancellationTokenSource;
+    private CancellationTokenSource _interruptCts;
     private string _channelNumber;
     private DateTimeOffset _channelStart;
     private int _discontinuitySequence;
@@ -69,6 +72,7 @@ public class HlsSessionWorker : IHlsSessionWorker
     {
         _serviceScope = serviceScopeFactory.CreateScope();
         _mediator = _serviceScope.ServiceProvider.GetRequiredService<IMediator>();
+        _interruptQueue = _serviceScope.ServiceProvider.GetRequiredService<IChannelInterruptService>();
         _graphicsEngine = graphicsEngine;
         _outputFormatKind = outputFormatKind;
         _hlsInitSegmentCache = hlsInitSegmentCache;
@@ -197,6 +201,11 @@ public class HlsSessionWorker : IHlsSessionWorker
 
             CancellationToken cancellationToken = _cancellationTokenSource.Token;
 
+            // allow priority 0 (emergency) interrupt items to cut the current scheduled transcode
+            using IDisposable interruptRegistration = _interruptQueue.RegisterForceInterruptHandler(
+                channelNumber,
+                ForceInterrupt);
+
             _logger.LogInformation("Starting HLS session for channel {Channel}", channelNumber);
 
             if (_localFileSystem.ListFiles(_workingDirectory).Any())
@@ -246,6 +255,25 @@ public class HlsSessionWorker : IHlsSessionWorker
 
                 var transcodedBuffer = TimeSpan.FromSeconds(
                     Math.Max(0, _transcodedUntil.Subtract(DateTimeOffset.Now).TotalSeconds));
+
+                // play any pending interrupt items before scheduled content
+                bool playedInterrupt = false;
+                foreach (InterruptQueueItem interruptItem in _interruptQueue.TryDequeue(_channelNumber))
+                {
+                    bool interruptRealtime = transcodedBuffer >= TimeSpan.FromSeconds(30);
+                    if (!await TranscodeInterrupt(interruptItem, interruptRealtime, cancellationToken))
+                    {
+                        return;
+                    }
+
+                    playedInterrupt = true;
+                }
+
+                if (playedInterrupt)
+                {
+                    continue;
+                }
+
                 if (transcodedBuffer <= TimeSpan.FromMinutes(1))
                 {
                     // only use realtime encoding when we're at least 30 seconds ahead
@@ -535,9 +563,17 @@ public class HlsSessionWorker : IHlsSessionWorker
 
                 _logger.LogDebug("ffmpeg hls arguments {FFmpegArguments}", process.Arguments);
 
+                using var interruptCts = new CancellationTokenSource();
+                lock (_sync)
+                {
+                    _interruptCts = interruptCts;
+                }
+
                 try
                 {
-                    using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                        cancellationToken,
+                        interruptCts.Token);
 
                     Command processWithPipe = process;
                     foreach (GraphicsEngineContext graphicsEngineContext in processModel.GraphicsEngineContext)
@@ -640,11 +676,41 @@ public class HlsSessionWorker : IHlsSessionWorker
                 }
                 catch (Exception ex) when (ex is TaskCanceledException or OperationCanceledException)
                 {
+                    if (interruptCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                    {
+                        // an emergency (priority 0) interrupt intentionally cut this transcode;
+                        // recover the actual transcoded position from the playlist so the interrupt
+                        // item picks up exactly where the audio stopped
+
+                        // the cut transcode may have written segments even if it never completed
+                        // (relevant when the FIRST transcode of a session is cut)
+                        if (!_hasWrittenSegments && _fileSystem.File.Exists(PlaylistFileName()))
+                        {
+                            _hasWrittenSegments = true;
+                        }
+
+                        TimeSpan lastPts = await GetPtsOffset(_channelNumber, CancellationToken.None);
+                        _transcodedUntil = _channelStart + lastPts;
+                        _state = HlsSessionState.SeekAndRealtime;
+
+                        _logger.LogInformation(
+                            "Scheduled transcode on channel {Channel} was cut for an emergency interrupt; transcoded until {Until}",
+                            _channelNumber,
+                            _transcodedUntil);
+
+                        return true;
+                    }
+
                     _logger.LogInformation("Terminating HLS session for channel {Channel}", _channelNumber);
                     return false;
                 }
                 finally
                 {
+                    lock (_sync)
+                    {
+                        _interruptCts = null;
+                    }
+
                     foreach (Pipe pipe in maybePipe)
                     {
                         await pipe.Writer.CompleteAsync();
@@ -678,6 +744,131 @@ public class HlsSessionWorker : IHlsSessionWorker
         }
 
         return false;
+    }
+
+    private void ForceInterrupt()
+    {
+        lock (_sync)
+        {
+            try
+            {
+                _interruptCts?.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // transcode just finished; the queued item will be picked up on the next loop iteration
+            }
+        }
+    }
+
+    private async Task<bool> TranscodeInterrupt(
+        InterruptQueueItem item,
+        bool realtime,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            TimeSpan ptsOffset = await GetPtsOffset(_channelNumber, cancellationToken);
+
+            var request = new GetInterruptProcessByChannelNumber(
+                _channelNumber,
+                StreamingMode.HttpLiveStreamingSegmenter,
+                _transcodedUntil,
+                realtime,
+                _channelStart,
+                ptsOffset,
+                item);
+
+            Either<BaseError, PlayoutItemProcessModel> result = await _mediator.Send(request, cancellationToken);
+
+            foreach (BaseError error in result.LeftAsEnumerable())
+            {
+                _logger.LogWarning(
+                    "Failed to create interrupt process for channel {Channel}; dropping item {Id}: {Error}",
+                    _channelNumber,
+                    item.Id,
+                    error.ToString());
+
+                // drop the item but keep the session alive
+                return true;
+            }
+
+            foreach (PlayoutItemProcessModel processModel in result.RightAsEnumerable())
+            {
+                await TrimAndDelete(cancellationToken);
+
+                foreach (long segmentKey in processModel.SegmentKey)
+                {
+                    _discontinuitySequence++;
+                    _discontinuityMap.TryAdd(segmentKey, _discontinuitySequence);
+                }
+
+                Command process = processModel.Process;
+
+                _logger.LogDebug("ffmpeg interrupt arguments {FFmpegArguments}", process.Arguments);
+
+                var stdErrBuffer = new StringBuilder();
+
+                try
+                {
+                    CommandResult commandResult = await process
+                        .WithWorkingDirectory(_workingDirectory)
+                        .WithStandardErrorPipe(PipeTarget.ToStringBuilder(stdErrBuffer))
+                        .WithValidation(CommandResultValidation.None)
+                        .ExecuteAsync(cancellationToken);
+
+                    if (commandResult.ExitCode == 0)
+                    {
+                        _transcodedUntil = processModel.Until;
+
+                        // scheduled content resumes mid-item, exactly like real radio
+                        // covering programming with a break
+                        _state = HlsSessionState.SeekAndRealtime;
+                        _hasWrittenSegments = true;
+
+                        _logger.LogInformation(
+                            "Interrupt {Title} ({Id}) complete on channel {Channel}; resuming scheduled content at {Until}",
+                            item.Title,
+                            item.Id,
+                            _channelNumber,
+                            _transcodedUntil);
+
+                        return true;
+                    }
+
+                    _logger.LogError(
+                        "Interrupt ffmpeg process for channel {Channel} failed with exit code {ExitCode}: {StandardError}; dropping item {Id}",
+                        _channelNumber,
+                        commandResult.ExitCode,
+                        stdErrBuffer.ToString(),
+                        item.Id);
+
+                    return true;
+                }
+                catch (Exception ex) when (ex is TaskCanceledException or OperationCanceledException)
+                {
+                    _logger.LogInformation("Terminating HLS session for channel {Channel}", _channelNumber);
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Error playing interrupt on channel {Channel} - {Message}; dropping item {Id}",
+                _channelNumber,
+                ex.Message,
+                item.Id);
+
+            return true;
+        }
+        finally
+        {
+            _interruptQueue.CleanUpFile(item);
+        }
     }
 
     private async Task TrimAndDelete(CancellationToken cancellationToken)
