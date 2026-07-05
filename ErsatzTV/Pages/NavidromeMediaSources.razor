@@ -1,0 +1,22 @@
+@page "/media/sources/navidrome"
+@using ErsatzTV.Application.Navidrome
+@using ErsatzTV.Core.Interfaces.Navidrome
+@using ErsatzTV.Core.Navidrome
+@inject INavidromeSecretStore NavidromeSecretStore
+@inject ChannelWriter<IScannerBackgroundServiceRequest> ScannerWorkerChannel
+
+<RemoteMediaSources
+    TViewModel="NavidromeMediaSourceViewModel"
+    TSecrets="NavidromeSecrets"
+    TMediaSource="NavidromeMediaSource"
+    Name="Navidrome"
+    GetAllMediaSourcesCommand="@(new GetAllNavidromeMediaSources())"
+    DisconnectCommand="@(new DisconnectNavidrome())"
+    RefreshLibrariesCommand="@RefreshLibraries"
+    SecretStore="@NavidromeSecretStore"
+    CanEdit="true"/>
+
+@code {
+    private async Task RefreshLibraries(int mediaSourceId, CancellationToken cancellationToken) =>
+        await ScannerWorkerChannel.WriteAsync(new SynchronizeNavidromeLibraries(mediaSourceId), cancellationToken);
+}

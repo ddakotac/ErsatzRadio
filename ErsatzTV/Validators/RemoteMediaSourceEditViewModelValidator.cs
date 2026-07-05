@@ -1,4 +1,4 @@
-﻿using ErsatzTV.ViewModels;
+using ErsatzTV.ViewModels;
 using FluentValidation;
 
 namespace ErsatzTV.Validators;
@@ -11,6 +11,10 @@ public class RemoteMediaSourceEditViewModelValidator : AbstractValidator<RemoteM
             .NotEmpty()
             .Must(uri => Uri.TryCreate(uri, UriKind.Absolute, out _))
             .WithMessage("'Address' must be a valid URL");
+
+        RuleFor(x => x.Username)
+            .NotEmpty()
+            .When(x => x.RequireUsername);
 
         RuleFor(x => x.ApiKey)
             .NotEmpty();

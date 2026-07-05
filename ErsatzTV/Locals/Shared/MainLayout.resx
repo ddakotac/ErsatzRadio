@@ -45,6 +45,12 @@
     <data name="ButtonMediaSourcesEmby" xml:space="preserve">
         <value>Emby</value>
     </data>
+    <data name="ButtonMediaSourcesAudiobookshelf" xml:space="preserve">
+        <value>Audiobookshelf</value>
+    </data>
+    <data name="ButtonMediaSourcesNavidrome" xml:space="preserve">
+        <value>Navidrome</value>
+    </data>
     <data name="ButtonMediaSourcesJellyfin" xml:space="preserve">
         <value>Jellyfin</value>
     </data>

@@ -1,0 +1,36 @@
+@page "/media/sources/navidrome/edit"
+@using ErsatzTV.Application.Navidrome
+@using ErsatzTV.Core.Navidrome
+@inject IMediator Mediator
+
+<RemoteMediaSourceEditor
+    Name="Navidrome"
+    ShowUsername="true"
+    ApiKeyLabel="Password"
+    MaskApiKey="true"
+    LoadSecrets="LoadSecrets"
+    SaveSecrets="SaveSecrets"/>
+
+@code {
+    private async Task<Unit> LoadSecrets(RemoteMediaSourceEditViewModel viewModel, CancellationToken cancellationToken)
+    {
+        NavidromeSecrets secrets = await Mediator.Send(new GetNavidromeSecrets(), cancellationToken);
+        viewModel.Address = secrets.Address;
+        viewModel.Username = secrets.Username;
+        viewModel.ApiKey = secrets.ApiKey;
+        return Unit.Default;
+    }
+
+    private async Task<Either<BaseError, Unit>> SaveSecrets(RemoteMediaSourceEditViewModel viewModel, CancellationToken cancellationToken)
+    {
+        var secrets = new NavidromeSecrets
+        {
+            Address = viewModel.Address,
+            Username = viewModel.Username,
+            ApiKey = viewModel.ApiKey
+        };
+
+        return await Mediator.Send(new SaveNavidromeSecrets(secrets), cancellationToken);
+    }
+
+}

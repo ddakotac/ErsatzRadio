@@ -1,0 +1,37 @@
+@page "/media/sources/audiobookshelf/{Id:int}/paths"
+@using ErsatzTV.Application.Audiobookshelf
+@using ErsatzTV.Application.MediaSources
+@inject IMediator Mediator
+
+<RemoteMediaSourcePathReplacementsEditor
+    Id="@Id"
+    Name="Audiobookshelf"
+    GetMediaSourceById="GetMediaSourceById"
+    GetUpdatePathReplacementsRequest="GetUpdatePathReplacementsRequest"
+    GetPathReplacementsBySourceId="GetPathReplacementsBySourceId"/>
+
+@code {
+    [Parameter]
+    public int Id { get; set; }
+
+    private async Task<Option<RemoteMediaSourceViewModel>> GetMediaSourceById(int id, CancellationToken cancellationToken) =>
+        await Mediator.Send(new GetAudiobookshelfMediaSourceById(Id), cancellationToken)
+            .MapT(vm => new RemoteMediaSourceViewModel(vm.Id, vm.Name, vm.Address));
+
+    private async Task<List<RemoteMediaSourcePathReplacementEditViewModel>> GetPathReplacementsBySourceId(int mediaSourceId, CancellationToken cancellationToken) =>
+        await Mediator.Send(new GetAudiobookshelfPathReplacementsBySourceId(Id), cancellationToken)
+            .Map(list => list.Map(ProjectToEditViewModel).ToList());
+
+    private RemoteMediaSourcePathReplacementEditViewModel ProjectToEditViewModel(AudiobookshelfPathReplacementViewModel item) =>
+        new() { Id = item.Id, RemotePath = item.AudiobookshelfPath, LocalPath = item.LocalPath };
+
+    private IRequest<Either<BaseError, Unit>> GetUpdatePathReplacementsRequest(List<RemoteMediaSourcePathReplacementEditViewModel> pathReplacements)
+    {
+        var items = pathReplacements
+            .Map(item => new AudiobookshelfPathReplacementItem(item.Id, item.RemotePath, item.LocalPath))
+            .ToList();
+
+        return new UpdateAudiobookshelfPathReplacements(Id, items);
+    }
+
+}

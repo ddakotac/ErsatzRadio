@@ -1,0 +1,28 @@
+@page "/media/sources/audiobookshelf/edit"
+@using ErsatzTV.Application.Audiobookshelf
+@using ErsatzTV.Core.Audiobookshelf
+@inject IMediator Mediator
+
+<RemoteMediaSourceEditor
+    Name="Audiobookshelf"
+    ApiKeyLabel="API Token"
+    MaskApiKey="true"
+    LoadSecrets="LoadSecrets"
+    SaveSecrets="SaveSecrets"/>
+
+@code {
+    private async Task<Unit> LoadSecrets(RemoteMediaSourceEditViewModel viewModel, CancellationToken cancellationToken)
+    {
+        AudiobookshelfSecrets secrets = await Mediator.Send(new GetAudiobookshelfSecrets(), cancellationToken);
+        viewModel.Address = secrets.Address;
+        viewModel.ApiKey = secrets.ApiKey;
+        return Unit.Default;
+    }
+
+    private async Task<Either<BaseError, Unit>> SaveSecrets(RemoteMediaSourceEditViewModel viewModel, CancellationToken cancellationToken)
+    {
+        var secrets = new AudiobookshelfSecrets { Address = viewModel.Address, ApiKey = viewModel.ApiKey };
+        return await Mediator.Send(new SaveAudiobookshelfSecrets(secrets), cancellationToken);
+    }
+
+}

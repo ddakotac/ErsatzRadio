@@ -1,0 +1,22 @@
+@page "/media/sources/audiobookshelf"
+@using ErsatzTV.Application.Audiobookshelf
+@using ErsatzTV.Core.Audiobookshelf
+@using ErsatzTV.Core.Interfaces.Audiobookshelf
+@inject IAudiobookshelfSecretStore AudiobookshelfSecretStore
+@inject ChannelWriter<IScannerBackgroundServiceRequest> ScannerWorkerChannel
+
+<RemoteMediaSources
+    TViewModel="AudiobookshelfMediaSourceViewModel"
+    TSecrets="AudiobookshelfSecrets"
+    TMediaSource="AudiobookshelfMediaSource"
+    Name="Audiobookshelf"
+    GetAllMediaSourcesCommand="@(new GetAllAudiobookshelfMediaSources())"
+    DisconnectCommand="@(new DisconnectAudiobookshelf())"
+    RefreshLibrariesCommand="@RefreshLibraries"
+    SecretStore="@AudiobookshelfSecretStore"
+    CanEdit="true"/>
+
+@code {
+    private async Task RefreshLibraries(int mediaSourceId, CancellationToken cancellationToken) =>
+        await ScannerWorkerChannel.WriteAsync(new SynchronizeAudiobookshelfLibraries(mediaSourceId), cancellationToken);
+}

@@ -11,7 +11,11 @@
             <MudCard>
                 <MudCardContent>
                     <MudTextField Label="Address" @bind-Value="_model.Address" For="@(() => _model.Address)" Placeholder="http://192.168.1.100:8096"/>
-                    <MudTextField Label="Api Key" @bind-Value="_model.ApiKey" For="@(() => _model.ApiKey)"/>
+                    @if (ShowUsername)
+                    {
+                        <MudTextField Label="Username" @bind-Value="_model.Username" For="@(() => _model.Username)"/>
+                    }
+                    <MudTextField Label="@ApiKeyLabel" @bind-Value="_model.ApiKey" For="@(() => _model.ApiKey)" InputType="@(MaskApiKey ? InputType.Password : InputType.Text)"/>
                 </MudCardContent>
                 <MudCardActions>
                     <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" Class="ml-auto">
@@ -28,6 +32,15 @@
 
     [Parameter]
     public string Name { get; set; }
+
+    [Parameter]
+    public bool ShowUsername { get; set; }
+
+    [Parameter]
+    public string ApiKeyLabel { get; set; } = "Api Key";
+
+    [Parameter]
+    public bool MaskApiKey { get; set; }
 
     [Parameter]
     public Func<RemoteMediaSourceEditViewModel, CancellationToken, Task<Unit>> LoadSecrets { get; set; }
@@ -51,6 +64,8 @@
         _cts?.Dispose();
         _cts = new CancellationTokenSource();
         var token = _cts.Token;
+
+        _model.RequireUsername = ShowUsername;
 
         try
         {

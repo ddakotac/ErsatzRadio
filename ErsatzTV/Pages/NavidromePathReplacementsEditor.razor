@@ -1,0 +1,37 @@
+@page "/media/sources/navidrome/{Id:int}/paths"
+@using ErsatzTV.Application.Navidrome
+@using ErsatzTV.Application.MediaSources
+@inject IMediator Mediator
+
+<RemoteMediaSourcePathReplacementsEditor
+    Id="@Id"
+    Name="Navidrome"
+    GetMediaSourceById="GetMediaSourceById"
+    GetUpdatePathReplacementsRequest="GetUpdatePathReplacementsRequest"
+    GetPathReplacementsBySourceId="GetPathReplacementsBySourceId"/>
+
+@code {
+    [Parameter]
+    public int Id { get; set; }
+
+    private async Task<Option<RemoteMediaSourceViewModel>> GetMediaSourceById(int id, CancellationToken cancellationToken) =>
+        await Mediator.Send(new GetNavidromeMediaSourceById(Id), cancellationToken)
+            .MapT(vm => new RemoteMediaSourceViewModel(vm.Id, vm.Name, vm.Address));
+
+    private async Task<List<RemoteMediaSourcePathReplacementEditViewModel>> GetPathReplacementsBySourceId(int mediaSourceId, CancellationToken cancellationToken) =>
+        await Mediator.Send(new GetNavidromePathReplacementsBySourceId(Id), cancellationToken)
+            .Map(list => list.Map(ProjectToEditViewModel).ToList());
+
+    private RemoteMediaSourcePathReplacementEditViewModel ProjectToEditViewModel(NavidromePathReplacementViewModel item) =>
+        new() { Id = item.Id, RemotePath = item.NavidromePath, LocalPath = item.LocalPath };
+
+    private IRequest<Either<BaseError, Unit>> GetUpdatePathReplacementsRequest(List<RemoteMediaSourcePathReplacementEditViewModel> pathReplacements)
+    {
+        var items = pathReplacements
+            .Map(item => new NavidromePathReplacementItem(item.Id, item.RemotePath, item.LocalPath))
+            .ToList();
+
+        return new UpdateNavidromePathReplacements(Id, items);
+    }
+
+}
