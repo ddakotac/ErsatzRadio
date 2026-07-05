@@ -125,8 +125,92 @@ Media source UI (the "general cleanup"):
 - MainLayout nav links + resx entries (en + pl)
 - NavidromeController/AudiobookshelfController REST surfaces left in place (harmless; HA-friendly)
 
-NEXT SESSION (session 7):
-- Live testing of interrupt queue against real deployment (expect log-driven fixes; esp. PTS recovery after force-cut and profile AudioFormat=Copy edge cases)
-- Icecast/direct MP3 endpoint (build order item 4 - still open)
-- Audio-only error process (anullsrc silence instead of video error cards)
-- Optional: interrupt queue Blazor page (view/clear queue per channel), Docker packaging
+Post-session-6 live testing results:
+- Podcast library scan crashed: audioFile.index null for podcast episodes -> fixed (nullable + positional fallback for book tracks, etags unchanged; patch 0004)
+- ABS book/podcast libraries + navidrome songs confirmed scanning and visible in UI
+
+NEXT SESSION (session 7): MEDIA NAVIGATION UI (dakota-confirmed priority)
+- Library disambiguation: show source library name on show/season/episode/song cards and detail pages
+  (dakota has 7 "JK Rowling" shows across 7 libraries). Library filter dropdown on Shows/Songs list pages.
+  Search index already carries library_id so grouped/filtered queries are cheap.
+- Book (season) display titles: seasons render hardcoded "Season {n}" - surface the book title
+  (scanner knows it; needs SeasonMetadata title through to season cards + detail pages)
+- Chapter (episode) titles: prefer ABS chapters[] titles over audio filenames when counts align;
+  fallback filename -> "{book} - Part {n}" chain stays
+- Navidrome artist/album browse: Music->Artists is Artist-entity backed (music video libraries only),
+  so navidrome-only installs see a blank page. Build artist + album pages grouped over song
+  metadata/tags (search-index-backed), drill-down artist -> albums -> songs
+- Carry-over: audio-only error process (anullsrc), icecast/direct MP3 endpoint, optional interrupt
+  queue management page
+
+Interrupt queue live-testing checklist (parallel to session 7, log-driven):
+- boundary interrupt (priority 1) airs at song boundary; TTL expiry drops stale items
+- emergency (priority 0) force-cut: verify PTS recovery resumes scheduled item at correct offset
+- HA -> tts_get_url -> multipart upload flow (docs/INTERRUPTS.md)
+- fallback filler on audio-only channels confirmed supported by code review (same AudioOnly branch);
+  recommend assigning fallback collections to radio channels until anullsrc error process lands
+
+
+### Session 7 (2026-07-05): media navigation ui + remote artwork (branch feature/media-nav-ui)
+COMPILE-VERIFIED (app + scanner, 0 errors).
+
+Remote artwork (was: no art for abs or navidrome):
+- Root cause: session 4/5 scanners set Artwork = [] everywhere; jellyfin/emby populate scheme urls
+  (jellyfin://...) that MediaCards/Television/Movies mappers rewrite to relative proxy urls served by
+  ArtworkController with server-side auth
+- New schemes: abs://items/{id}/cover, abs://authors/{id}/image (token query auth),
+  navidrome://{songId} (subsonic getCoverArt, md5 salted token)
+- Core: AudiobookshelfUrl + NavidromeUrl helpers (mirror JellyfinUrl); mapper branches are
+  UNCONDITIONAL StartsWith checks (no maybe-source plumbing needed - proxy resolves secrets itself)
+- ArtworkController: /artwork/{posters,thumbnails,fanart}/{abs,navidrome}/{*path} (+iptv variants),
+  secrets via injected secret stores
+- Scanner: author image + podcast/book covers on shows/seasons; song thumbnails (navidrome://{id});
+  NavidromeSongRepository.UpdateSong now syncs artwork (was missing); abs repo already synced
+- ETAG VERSION BUMP (v2) in both clients: next scan refreshes ALL synced items once so artwork +
+  titles land on existing rows. Expect a slow first scan after deploy; benign.
+
+Book/chapter naming:
+- Season titles: scanner already stored book titles in SeasonMetadata.Title (session 5); UI hardcoded
+  "Season {n}". Mappers now prefer non-empty metadata title (cards + tv detail). Also improves
+  jellyfin named seasons.
+- Chapter titles: AbsChapter model + chapters[] on expanded items; when chapter count == track count,
+  chapter titles name book episodes; fallback chain filename -> "{book} - Part {n}" unchanged
+
+Library disambiguation (7x "JK Rowling" problem):
+- Show + song card subtitles append " · {library name}" (null-safe; only when handler includes library)
+- QuerySearchIndexShows/SongsHandler: Include LibraryPath.Library
+- Library filter dropdown on TelevisionShowList + SongList: query-builder approach - injects/strips
+  library_id:{n} in the search query string so pagination/letterbar/permalinks preserve the filter
+
+Thin artist/album browse (navidrome):
+- GetSongArtists / GetSongAlbums: narrow EF projection (album/artists/albumArtists), client-side
+  grouping (artists/albumArtists are EF json primitive collections - no sql group by). Effective
+  artist = albumArtist ?? first artist.
+- Pages: media/music/song-artists (name/album count/song count) -> media/music/albums?artist=X ->
+  songs?query=album:"X" AND (album_artist:"Y" OR artist:"Y"). Reuses song list + search index for the
+  final hop. Quote-escaped lucene phrases.
+- Nav: Song Artists + Albums links (en+pl resx). Existing Artists page (music-video Artist entities)
+  untouched.
+
+GOTCHA fixed during session: adding LanguageExt Prelude to _Imports.razor breaks razor files that
+already import it locally (CS0105-as-error); import per-page instead.
+
+Post-session-7 live testing (dakota):
+- Artwork CONFIRMED WORKING for abs (book covers render on seasons page)
+- Patches 0006/0007 applied clean; docs patch failed (0005 agenda was never pushed -> plan doc
+  drift). RESOLUTION: plan doc now ships as a whole file, not a diff. Drift ended.
+
+NEXT SESSION (session 8): AUTHOR/BOOK LIST VIEWS (dakota-requested) + carry-overs
+- Authors list view (table like artists page): Author | book count | Library, click -> show detail
+  page (an author = one Show per library; library column disambiguates the 7 Rowlings)
+- Books list view (table like albums page): Book | Author | Library, click -> season detail
+- Nav: dakota asked to rename "TV Shows" -> "Authors". Caveat: podcasts are also shows. Default
+  plan (pending dakota confirmation): nav entry "Authors" points at the NEW list view; existing
+  tiles page keeps its route and stays reachable via search
+- MediaCard text wrapping: title/subtitle single-line ellipsis cuts off titles, bad when no
+  artwork. Switch to 2-line clamp (-webkit-line-clamp) in MediaCard.razor
+- Interrupt queue live-test findings from dakota's TTS testing (pending)
+- Audio-only error process (anullsrc) - carried over, recommend fallback collections meanwhile
+- Icecast/direct MP3 endpoint (build order item 4) - carried over twice now
+- Possible: artwork on artist/album tables (getCoverArt by album id), chapter titles live-check,
+  search facets, breadcrumbs
