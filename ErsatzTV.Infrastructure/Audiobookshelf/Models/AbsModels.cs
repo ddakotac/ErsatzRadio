@@ -1,4 +1,4 @@
-using System.Text.Json.Serialization;
+﻿using System.Text.Json.Serialization;
 
 namespace ErsatzTV.Infrastructure.Audiobookshelf.Models;
 
@@ -109,6 +109,9 @@ public class AbsMedia
     [JsonPropertyName("episodes")]
     public List<AbsPodcastEpisode> Episodes { get; set; }
 
+    [JsonPropertyName("chapters")]
+    public List<AbsChapter> Chapters { get; set; }
+
     [JsonPropertyName("tags")]
     public List<string> Tags { get; set; }
 }
@@ -209,6 +212,18 @@ public class AbsPodcastEpisode
 
     [JsonPropertyName("audioFile")]
     public AbsAudioFile AudioFile { get; set; }
+}
+
+public class AbsChapter
+{
+    [JsonPropertyName("start")]
+    public double? Start { get; set; }
+
+    [JsonPropertyName("end")]
+    public double? End { get; set; }
+
+    [JsonPropertyName("title")]
+    public string Title { get; set; }
 }
 
 public class AbsExpandedItemResponse : AbsLibraryItem

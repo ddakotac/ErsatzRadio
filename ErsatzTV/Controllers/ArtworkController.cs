@@ -1,10 +1,14 @@
-using ErsatzTV.Application.Artworks;
+﻿using ErsatzTV.Application.Artworks;
 using ErsatzTV.Application.Emby;
 using ErsatzTV.Application.Images;
 using ErsatzTV.Application.Jellyfin;
 using ErsatzTV.Application.Plex;
 using ErsatzTV.Core;
 using ErsatzTV.Core.Domain;
+using ErsatzTV.Core.Audiobookshelf;
+using ErsatzTV.Core.Interfaces.Audiobookshelf;
+using ErsatzTV.Core.Interfaces.Navidrome;
+using ErsatzTV.Core.Navidrome;
 using ErsatzTV.Core.Emby;
 using ErsatzTV.Core.Images;
 using ErsatzTV.Core.Interfaces.Images;
@@ -23,15 +27,21 @@ public class ArtworkController : ControllerBase
     private readonly IChannelLogoGenerator _channelLogoGenerator;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IMediator _mediator;
+    private readonly IAudiobookshelfSecretStore _audiobookshelfSecretStore;
+    private readonly INavidromeSecretStore _navidromeSecretStore;
 
     public ArtworkController(
         IMediator mediator,
         IHttpClientFactory httpClientFactory,
-        IChannelLogoGenerator channelLogoGenerator)
+        IChannelLogoGenerator channelLogoGenerator,
+        IAudiobookshelfSecretStore audiobookshelfSecretStore,
+        INavidromeSecretStore navidromeSecretStore)
     {
         _mediator = mediator;
         _httpClientFactory = httpClientFactory;
         _channelLogoGenerator = channelLogoGenerator;
+        _audiobookshelfSecretStore = audiobookshelfSecretStore;
+        _navidromeSecretStore = navidromeSecretStore;
     }
 
     [HttpHead("/artwork/{id}")]
@@ -131,6 +141,40 @@ public class ArtworkController : ControllerBase
         }
 
         return GetEmbyArtwork(path, cancellationToken);
+    }
+
+    [HttpHead("/iptv/artwork/posters/abs/{*path}")]
+    [HttpGet("/iptv/artwork/posters/abs/{*path}")]
+    [HttpGet("/artwork/posters/abs/{*path}")]
+    [HttpHead("/iptv/artwork/thumbnails/abs/{*path}")]
+    [HttpGet("/iptv/artwork/thumbnails/abs/{*path}")]
+    [HttpGet("/artwork/thumbnails/abs/{*path}")]
+    [HttpGet("/artwork/fanart/abs/{*path}")]
+    public Task<IActionResult> GetAudiobookshelf(string path, CancellationToken cancellationToken)
+    {
+        if (Request.QueryString.HasValue)
+        {
+            path += Request.QueryString.Value;
+        }
+
+        return GetAudiobookshelfArtwork(path, cancellationToken);
+    }
+
+    [HttpHead("/iptv/artwork/posters/navidrome/{*path}")]
+    [HttpGet("/iptv/artwork/posters/navidrome/{*path}")]
+    [HttpGet("/artwork/posters/navidrome/{*path}")]
+    [HttpHead("/iptv/artwork/thumbnails/navidrome/{*path}")]
+    [HttpGet("/iptv/artwork/thumbnails/navidrome/{*path}")]
+    [HttpGet("/artwork/thumbnails/navidrome/{*path}")]
+    [HttpGet("/artwork/fanart/navidrome/{*path}")]
+    public Task<IActionResult> GetNavidrome(string path, CancellationToken cancellationToken)
+    {
+        if (Request.QueryString.HasValue)
+        {
+            path += Request.QueryString.Value;
+        }
+
+        return GetNavidromeArtwork(path, cancellationToken);
     }
 
     [HttpHead("/iptv/artwork/posters/plex/{plexMediaSourceId}/{*path}")]
@@ -304,4 +348,68 @@ public class ArtworkController : ControllerBase
                 Left: _ => new RedirectResult("/iptv/images/ersatztv-500.png"),
                 Right: img => File(img, "image/png")
             );
+
+    private async Task<IActionResult> GetAudiobookshelfArtwork(string path, CancellationToken cancellationToken)
+    {
+        AudiobookshelfSecrets secrets = await _audiobookshelfSecretStore.ReadSecrets();
+        if (string.IsNullOrWhiteSpace(secrets?.Address) || string.IsNullOrWhiteSpace(secrets.ApiKey))
+        {
+            return NotFound();
+        }
+
+        try
+        {
+            HttpClient client = _httpClientFactory.CreateClient();
+            HttpContext.Response.RegisterForDispose(client);
+
+            Url fullPath = AudiobookshelfUrl.ForArtwork(secrets.Address, secrets.ApiKey, path);
+            HttpResponseMessage response = await client.GetAsync(
+                fullPath,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken);
+            HttpContext.Response.RegisterForDispose(response);
+
+            Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+
+            return new FileStreamResult(
+                stream,
+                response.Content.Headers.ContentType?.MediaType ?? "image/jpeg");
+        }
+        catch (Exception ex) when (ex is TaskCanceledException or OperationCanceledException)
+        {
+            return NotFound();
+        }
+    }
+
+    private async Task<IActionResult> GetNavidromeArtwork(string path, CancellationToken cancellationToken)
+    {
+        NavidromeSecrets secrets = await _navidromeSecretStore.ReadSecrets();
+        if (string.IsNullOrWhiteSpace(secrets?.Address) || string.IsNullOrWhiteSpace(secrets.Username))
+        {
+            return NotFound();
+        }
+
+        try
+        {
+            HttpClient client = _httpClientFactory.CreateClient();
+            HttpContext.Response.RegisterForDispose(client);
+
+            Url fullPath = NavidromeUrl.ForCoverArt(secrets.Address, secrets.Username, secrets.ApiKey, path);
+            HttpResponseMessage response = await client.GetAsync(
+                fullPath,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken);
+            HttpContext.Response.RegisterForDispose(response);
+
+            Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+
+            return new FileStreamResult(
+                stream,
+                response.Content.Headers.ContentType?.MediaType ?? "image/jpeg");
+        }
+        catch (Exception ex) when (ex is TaskCanceledException or OperationCanceledException)
+        {
+            return NotFound();
+        }
+    }
 }

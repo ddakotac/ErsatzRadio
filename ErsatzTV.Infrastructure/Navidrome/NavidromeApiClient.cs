@@ -1,4 +1,4 @@
-using System.Runtime.CompilerServices;
+﻿using System.Runtime.CompilerServices;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -264,7 +264,16 @@ public class NavidromeApiClient : INavidromeApiClient
                 Tags = [],
                 Studios = [],
                 Actors = [],
-                Artwork = [],
+                Artwork =
+                [
+                    new Artwork
+                    {
+                        ArtworkKind = ArtworkKind.Thumbnail,
+                        Path = $"navidrome://{item.Id}",
+                        DateAdded = now,
+                        DateUpdated = now
+                    }
+                ],
                 Guids = []
             };
 
@@ -286,10 +295,15 @@ public class NavidromeApiClient : INavidromeApiClient
         }
     }
 
+    // bump to force a one-time metadata refresh across all synced songs
+    // (v2: thumbnail artwork added)
+    private const string EtagVersion = "2";
+
     private static string ComputeEtag(NavidromeNativeSong item)
     {
         string fingerprint = string.Join(
             '|',
+            EtagVersion,
             item.Id,
             item.Title,
             item.Album,

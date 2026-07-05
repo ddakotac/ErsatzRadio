@@ -1,7 +1,9 @@
 ﻿using System.Globalization;
 using ErsatzTV.Core.Domain;
+using ErsatzTV.Core.Audiobookshelf;
 using ErsatzTV.Core.Emby;
 using ErsatzTV.Core.Jellyfin;
+using ErsatzTV.Core.Navidrome;
 using Flurl;
 
 namespace ErsatzTV.Application.Television;
@@ -59,7 +61,10 @@ internal static class Mapper
             season.Show.ShowMetadata.HeadOrNone().Map(m => m.Title ?? string.Empty).IfNone(string.Empty),
             season.Show.ShowMetadata.HeadOrNone()
                 .Map(m => m.Year?.ToString(CultureInfo.InvariantCulture) ?? string.Empty).IfNone(string.Empty),
-            season.SeasonNumber == 0 ? "Specials" : $"Season {season.SeasonNumber}",
+            season.SeasonMetadata.HeadOrNone()
+                .Map(m => m.Title)
+                .Filter(t => !string.IsNullOrWhiteSpace(t))
+                .IfNone(season.SeasonNumber == 0 ? "Specials" : $"Season {season.SeasonNumber}"),
             season.SeasonMetadata.HeadOrNone().Map(m => GetPoster(m, maybeJellyfin, maybeEmby))
                 .IfNone(string.Empty),
             season.Show.ShowMetadata.HeadOrNone().Map(m => GetFanArt(m, maybeJellyfin, maybeEmby))
@@ -104,6 +109,22 @@ internal static class Mapper
                 url.SetQueryParam("maxHeight", 440);
             }
 
+            artwork = url;
+        }
+        else if (artwork.StartsWith("abs://", StringComparison.OrdinalIgnoreCase))
+        {
+            Url url = AudiobookshelfUrl.RelativeProxyForArtwork(artwork);
+            if (artworkKind == ArtworkKind.Poster)
+            {
+                url.SetQueryParam("width", 440);
+            }
+
+            artwork = url;
+        }
+        else if (artwork.StartsWith("navidrome://", StringComparison.OrdinalIgnoreCase))
+        {
+            Url url = NavidromeUrl.RelativeProxyForArtwork(artwork);
+            url.SetQueryParam("size", artworkKind == ArtworkKind.Poster ? 440 : 220);
             artwork = url;
         }
 

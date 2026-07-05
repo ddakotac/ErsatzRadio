@@ -226,6 +226,23 @@ public class NavidromeSongRepository : INavidromeSongRepository
             metadata.Tags.Add(tag);
         }
 
+        // artwork
+        foreach (Artwork artwork in metadata.Artwork
+                     .Filter(a => incomingMetadata.Artwork.All(a2 =>
+                         a2.ArtworkKind != a.ArtworkKind || a2.Path != a.Path))
+                     .ToList())
+        {
+            metadata.Artwork.Remove(artwork);
+        }
+
+        foreach (Artwork artwork in incomingMetadata.Artwork
+                     .Filter(a => metadata.Artwork.All(a2 =>
+                         a2.ArtworkKind != a.ArtworkKind || a2.Path != a.Path))
+                     .ToList())
+        {
+            metadata.Artwork.Add(artwork);
+        }
+
         // version
         MediaVersion version = existing.MediaVersions.Head();
         MediaVersion incomingVersion = incoming.MediaVersions.Head();

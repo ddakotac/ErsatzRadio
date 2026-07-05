@@ -1,9 +1,11 @@
 ﻿using System.Globalization;
 using ErsatzTV.Core;
 using ErsatzTV.Core.Domain;
+using ErsatzTV.Core.Audiobookshelf;
 using ErsatzTV.Core.Emby;
 using ErsatzTV.Core.Extensions;
 using ErsatzTV.Core.Jellyfin;
+using ErsatzTV.Core.Navidrome;
 
 namespace ErsatzTV.Application.MediaCards;
 
@@ -16,7 +18,9 @@ internal static class Mapper
         new(
             showMetadata.ShowId,
             showMetadata.Title,
-            showMetadata.Year?.ToString(CultureInfo.InvariantCulture),
+            GetCardSubtitle(
+                showMetadata.Year?.ToString(CultureInfo.InvariantCulture),
+                showMetadata.Show?.LibraryPath?.Library?.Name),
             showMetadata.SortTitle,
             GetPoster(showMetadata, maybeJellyfin, maybeEmby),
             showMetadata.Show.State);
@@ -29,9 +33,9 @@ internal static class Mapper
             season.Show.ShowMetadata.HeadOrNone().Match(m => m.Title ?? string.Empty, () => string.Empty),
             season.Id,
             season.SeasonNumber,
-            GetSeasonName(season.SeasonNumber),
+            GetSeasonName(season.SeasonNumber, season.SeasonMetadata.HeadOrNone()),
             string.Empty,
-            GetSeasonName(season.SeasonNumber),
+            GetSeasonName(season.SeasonNumber, season.SeasonMetadata.HeadOrNone()),
             season.SeasonMetadata.HeadOrNone().Map(sm => GetPoster(sm, maybeJellyfin, maybeEmby))
                 .IfNone(string.Empty),
             season.SeasonNumber == 0 ? "S" : new string(season.SeasonNumber.ToString(CultureInfo.InvariantCulture).Take(20).ToArray()),
@@ -51,7 +55,7 @@ internal static class Mapper
             seasonMetadata.SeasonId,
             seasonMetadata.Season.SeasonNumber,
             showTitle,
-            GetSeasonName(seasonMetadata.Season.SeasonNumber),
+            GetSeasonName(seasonMetadata.Season.SeasonNumber, seasonMetadata),
             $"{showTitle}_{seasonMetadata.Season.SeasonNumber:0000}",
             GetPoster(seasonMetadata, maybeJellyfin, maybeEmby),
             seasonMetadata.Season.SeasonNumber == 0
@@ -140,7 +144,9 @@ internal static class Mapper
         return new SongCardViewModel(
             songMetadata.SongId,
             songMetadata.Title,
-            string.Join(", ", songMetadata.Artists ?? []) + album,
+            GetCardSubtitle(
+                string.Join(", ", songMetadata.Artists ?? []) + album,
+                songMetadata.Song?.LibraryPath?.Library?.Name),
             songMetadata.SortTitle,
             GetThumbnail(songMetadata, None, None),
             songMetadata.Song.State);
@@ -239,8 +245,23 @@ internal static class Mapper
             .Map(ci => ci.CustomIndex ?? 0)
             .IfNone(0);
 
-    private static string GetSeasonName(int number) =>
-        number == 0 ? "Specials" : $"Season {number}";
+    private static string GetCardSubtitle(string subtitle, string libraryName) =>
+        string.Join(
+            " · ",
+            new[] { subtitle, libraryName }.Where(s => !string.IsNullOrWhiteSpace(s)));
+
+    private static string GetSeasonName(int number, Option<SeasonMetadata> maybeMetadata)
+    {
+        // prefer a real season title when the scanner provided one
+        // (audiobookshelf books, jellyfin named seasons)
+        foreach (string title in maybeMetadata.Map(sm => sm.Title)
+                     .Filter(t => !string.IsNullOrWhiteSpace(t)))
+        {
+            return title;
+        }
+
+        return number == 0 ? "Specials" : $"Season {number}";
+    }
 
     private static string GetEpisodePoster(
         EpisodeMetadata episodeMetadata,
@@ -278,6 +299,16 @@ internal static class Mapper
             poster = EmbyUrl.RelativeProxyForArtwork(poster)
                 .SetQueryParam("maxHeight", 440);
         }
+        else if (poster.StartsWith("abs://", StringComparison.OrdinalIgnoreCase))
+        {
+            poster = AudiobookshelfUrl.RelativeProxyForArtwork(poster)
+                .SetQueryParam("width", 440);
+        }
+        else if (poster.StartsWith("navidrome://", StringComparison.OrdinalIgnoreCase))
+        {
+            poster = NavidromeUrl.RelativeProxyForArtwork(poster)
+                .SetQueryParam("size", 440);
+        }
 
         return poster;
     }
@@ -299,6 +330,16 @@ internal static class Mapper
         {
             thumb = EmbyUrl.RelativeProxyForArtwork(thumb)
                 .SetQueryParam("maxHeight", 220);
+        }
+        else if (thumb.StartsWith("abs://", StringComparison.OrdinalIgnoreCase))
+        {
+            thumb = AudiobookshelfUrl.RelativeProxyForArtwork(thumb)
+                .SetQueryParam("width", 220);
+        }
+        else if (thumb.StartsWith("navidrome://", StringComparison.OrdinalIgnoreCase))
+        {
+            thumb = NavidromeUrl.RelativeProxyForArtwork(thumb)
+                .SetQueryParam("size", 220);
         }
 
         return thumb;

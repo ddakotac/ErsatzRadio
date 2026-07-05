@@ -1,4 +1,4 @@
-using System.Runtime.CompilerServices;
+﻿using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -166,7 +166,16 @@ public class AudiobookshelfApiClient : IAudiobookshelfApiClient
                         DateUpdated = DateTime.UtcNow,
                         Tags = [],
                         Guids = [],
-                        Artwork = []
+                        Artwork =
+                        [
+                            new Artwork
+                            {
+                                ArtworkKind = ArtworkKind.Poster,
+                                Path = $"abs://items/{podcastId}/cover",
+                                DateAdded = DateTime.UtcNow,
+                                DateUpdated = DateTime.UtcNow
+                            }
+                        ]
                     }
                 ],
                 TraktListItems = []
@@ -213,7 +222,16 @@ public class AudiobookshelfApiClient : IAudiobookshelfApiClient
                             DateUpdated = FromUnixMs(book.UpdatedAt),
                             Tags = [],
                             Guids = [],
-                            Artwork = []
+                            Artwork =
+                            [
+                                new Artwork
+                                {
+                                    ArtworkKind = ArtworkKind.Poster,
+                                    Path = $"abs://items/{book.Id}/cover",
+                                    DateAdded = FromUnixMs(book.AddedAt),
+                                    DateUpdated = FromUnixMs(book.UpdatedAt)
+                                }
+                            ]
                         }
                     ],
                     TraktListItems = []
@@ -270,11 +288,18 @@ public class AudiobookshelfApiClient : IAudiobookshelfApiClient
                 .ThenBy(f => f.Metadata?.Filename ?? string.Empty, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
+            // when chapter count matches track count, chapter titles name the episodes
+            // (multi-file books are typically one file per chapter); single-file books
+            // with many chapters cannot be mapped and keep filename titles
+            List<AbsChapter> chapters = Optional(book?.Media?.Chapters).Flatten().ToList();
+            bool useChapterTitles = chapters.Count == tracks.Count && chapters.Count > 0;
+
             var number = 0;
             foreach (AbsAudioFile track in tracks)
             {
                 number++;
-                foreach (AudiobookshelfEpisode projected in ProjectTrackToEpisode(book, track, number))
+                string chapterTitle = useChapterTitles ? chapters[number - 1].Title : null;
+                foreach (AudiobookshelfEpisode projected in ProjectTrackToEpisode(book, track, number, chapterTitle))
                 {
                     yield return Tuple(projected, Math.Max(tracks.Count, 1));
                 }
@@ -298,7 +323,16 @@ public class AudiobookshelfApiClient : IAudiobookshelfApiClient
                 Tags = [new Tag { Name = "audiobook-author" }],
                 Studios = [],
                 Actors = [],
-                Artwork = [],
+                Artwork =
+                [
+                    new Artwork
+                    {
+                        ArtworkKind = ArtworkKind.Poster,
+                        Path = $"abs://authors/{author.Id}/image",
+                        DateAdded = FromUnixMs(author.AddedAt),
+                        DateUpdated = FromUnixMs(author.UpdatedAt)
+                    }
+                ],
                 Guids = []
             };
 
@@ -342,7 +376,16 @@ public class AudiobookshelfApiClient : IAudiobookshelfApiClient
                 ],
                 Studios = [],
                 Actors = [],
-                Artwork = [],
+                Artwork =
+                [
+                    new Artwork
+                    {
+                        ArtworkKind = ArtworkKind.Poster,
+                        Path = $"abs://items/{item.Id}/cover",
+                        DateAdded = FromUnixMs(item.AddedAt),
+                        DateUpdated = FromUnixMs(item.UpdatedAt)
+                    }
+                ],
                 Guids = []
             };
 
@@ -364,12 +407,18 @@ public class AudiobookshelfApiClient : IAudiobookshelfApiClient
     private Option<AudiobookshelfEpisode> ProjectTrackToEpisode(
         AbsLibraryItem book,
         AbsAudioFile track,
-        int episodeNumber)
+        int episodeNumber,
+        string chapterTitle = null)
     {
         try
         {
             string bookTitle = book.Media?.Metadata?.Title ?? "Audiobook";
-            string title = Path.GetFileNameWithoutExtension(track.Metadata?.Filename);
+            string title = chapterTitle;
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                title = Path.GetFileNameWithoutExtension(track.Metadata?.Filename);
+            }
+
             if (string.IsNullOrWhiteSpace(title))
             {
                 title = $"{bookTitle} - Part {episodeNumber}";
@@ -560,9 +609,13 @@ public class AudiobookshelfApiClient : IAudiobookshelfApiClient
             ? DateTimeOffset.FromUnixTimeMilliseconds(unixMs.Value).UtcDateTime
             : DateTime.UtcNow;
 
+    // bump to force a one-time metadata refresh across all synced items
+    // (v2: artwork added to shows/seasons)
+    private const string EtagVersion = "2";
+
     private static string ComputeEtag(params object[] parts)
     {
-        string fingerprint = string.Join(
+        string fingerprint = EtagVersion + '|' + string.Join(
             '|',
             parts.Map(p => p?.ToString() ?? string.Empty));
 
