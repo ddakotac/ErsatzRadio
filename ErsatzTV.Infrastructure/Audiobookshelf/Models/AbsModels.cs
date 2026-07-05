@@ -144,8 +144,9 @@ public class AbsMediaMetadata
 
 public class AbsAudioFile
 {
+    // book tracks populate this; podcast episode audio files return null
     [JsonPropertyName("index")]
-    public int Index { get; set; }
+    public int? Index { get; set; }
 
     [JsonPropertyName("metadata")]
     public AbsFileMetadata Metadata { get; set; }

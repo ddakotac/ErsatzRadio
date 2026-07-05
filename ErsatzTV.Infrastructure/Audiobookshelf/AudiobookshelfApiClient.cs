@@ -266,7 +266,8 @@ public class AudiobookshelfApiClient : IAudiobookshelfApiClient
 
             List<AbsAudioFile> tracks = Optional(book?.Media?.AudioFiles).Flatten()
                 .Filter(f => !string.IsNullOrWhiteSpace(f.Metadata?.Path))
-                .OrderBy(f => f.Index)
+                .OrderBy(f => f.Index ?? int.MaxValue)
+                .ThenBy(f => f.Metadata?.Filename ?? string.Empty, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
             var number = 0;
@@ -374,9 +375,13 @@ public class AudiobookshelfApiClient : IAudiobookshelfApiClient
                 title = $"{bookTitle} - Part {episodeNumber}";
             }
 
+            // book tracks always carry an index in practice; positional fallback keeps
+            // null-index files from colliding on itemId
+            int trackIndex = track.Index ?? episodeNumber;
+
             return ProjectEpisode(
-                itemId: $"{book.Id}:t{track.Index}",
-                etag: ComputeEtag(book.Id, book.UpdatedAt, track.Index, track.Metadata?.Path),
+                itemId: $"{book.Id}:t{trackIndex}",
+                etag: ComputeEtag(book.Id, book.UpdatedAt, trackIndex, track.Metadata?.Path),
                 title: title,
                 episodeNumber: episodeNumber,
                 path: track.Metadata.Path,
