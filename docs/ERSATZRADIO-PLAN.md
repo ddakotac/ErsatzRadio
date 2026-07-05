@@ -94,3 +94,39 @@ ABS design decisions:
 - Paths: ABS returns absolute container paths in audioFile metadata; resolve to local at scan time like navidrome (part 2 scanner will apply replacements before storage)
 DONE part 1: domain (MediaSource/Connection/PathReplacement/Library w AbsMediaType, Show/Season/Episode), core (ConnectionParameters/Secrets/ServerInformation/ItemEtag/PathReplacementService), interfaces (api client/secret store/path service/tv scanner/IAudiobookshelfTelevisionRepository over existing generic IMediaServerTelevisionRepository), infrastructure (models incl flexible converter, api client, secret store), FileSystemLayout secrets path.
 PART 2 TODO (mirror navidrome parts 2-3 + jellyfin television): TvContext DbSets + EF configs + migrations (user: ./scripts/add-migration.sh Add_Audiobookshelf), AudiobookshelfTelevisionRepository (model on JellyfinTelevisionRepository), scanner class over MediaServerTelevisionLibraryScanner base w/ scan-time path resolution, scanner worker command "scan-audiobookshelf" + handler + DI both processes, app-layer commands (secrets/sync/preferences/path replacements) + controller /api/audiobookshelf/*, ScannerService channel cases, Libraries page filter+mapper+viewmodel+scan case.
+
+### Session 6 (2026-07-04): TTL-aware priority interrupt queue + injection API + media source UI (branch feature/interrupt-queue)
+Note: ABS part 2 + migrations landed on main before this session (commits b01f0a7..d14ce12).
+COMPILE-VERIFIED this session (NuGet now reachable in sandbox; dotnet 10 SDK via dotnet-install.sh).
+
+Interrupt queue design:
+- In-memory singleton IChannelInterruptService/ChannelInterruptService (Core/Interrupts; CA1711 forbids *Queue type names) - per-channel list, lower priority number wins, FIFO within priority, TTL purge on dequeue
+- InterruptQueueItem: Id/ChannelNumber/Path/Title/Priority/EnqueuedAt/ExpiresAt/Duration/DeleteFileWhenDone
+- Priority 0 = EMERGENCY: Enqueue invokes a per-channel force handler registered by HlsSessionWorker.Run; handler cancels a per-transcode CTS linked into the scheduled ffmpeg process
+- Force-cut recovery: cancellation catch in Transcode() distinguishes interrupt-cut from session-cancel; recovers _transcodedUntil from GetPtsOffset (last PTS in playlist = actual audio written), sets SeekAndRealtime, returns true so the loop continues
+- Priority >= 1 waits for the next item boundary: Run loop dequeues at top of each iteration (5s max latency when buffered ahead) and plays via TranscodeInterrupt
+- TranscodeInterrupt: GetInterruptProcessByChannelNumber (FFmpegProcessHandler subclass) reuses ForAudioOnlyPlayoutItem with the injected file, start=_transcodedUntil, finish=start+duration, segmentKey for discontinuity map; failures DROP the item and keep the session alive (no error card)
+- After any interrupt: state=SeekAndRealtime so the next scheduled request seeks into the covered playout item at _transcodedUntil - scheduled content is "covered", exactly like broadcast radio
+- Audio-only channels ONLY (handler + API both enforce ChannelSongVideoMode.AudioOnly)
+- KNOWN LIMITATION: HLS work-ahead buffer means even emergency interrupts air after already-written segments play out (~30-60s worst case + player buffer). True playlist truncation not attempted (players have already buffered).
+- Emergency cannot cut another interrupt (force handler only wraps scheduled transcodes)
+
+Injection API (InterruptsController, FileSystemLayout.InterruptsFolder for uploads):
+- POST /api/channels/{num}/interrupts (multipart file + priority/ttlSeconds/title; 100MB limit; uploaded files deleted after play/expiry)
+- POST /api/channels/{num}/interrupts/path (json path/priority/ttlSeconds/title/deleteWhenDone for server-local files, e.g. HA shared volume)
+- GET / DELETE {id} / DELETE (list/remove/clear)
+- Duration probed with ffprobe at enqueue (400 if unprobeable); default priority 1, ttl 300s
+
+Media source UI (the "general cleanup"):
+- RemoteMediaSourceEditor extended: ShowUsername/ApiKeyLabel/MaskApiKey params + RequireUsername flag on edit VM (validator .When) - Emby/Jellyfin behavior unchanged
+- Navidrome + Audiobookshelf VMs now inherit RemoteMediaSourceViewModel (shared component generic constraint)
+- New app-layer: Disconnect{Navidrome,Audiobookshelf} (+search index removal/unlock), Get{Navidrome,Audiobookshelf}Secrets, Get{Navidrome,Audiobookshelf}MediaSourceById
+- 8 pages: {Navidrome,Audiobookshelf}{MediaSources,MediaSourceEditor,LibrariesEditor,PathReplacementsEditor}.razor at media/sources/{navidrome,audiobookshelf}[...] (mirror jellyfin pages; navidrome editor uses username+password, abs uses API token)
+- MainLayout nav links + resx entries (en + pl)
+- NavidromeController/AudiobookshelfController REST surfaces left in place (harmless; HA-friendly)
+
+NEXT SESSION (session 7):
+- Live testing of interrupt queue against real deployment (expect log-driven fixes; esp. PTS recovery after force-cut and profile AudioFormat=Copy edge cases)
+- Icecast/direct MP3 endpoint (build order item 4 - still open)
+- Audio-only error process (anullsrc silence instead of video error cards)
+- Optional: interrupt queue Blazor page (view/clear queue per channel), Docker packaging
