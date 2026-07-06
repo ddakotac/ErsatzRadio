@@ -34,7 +34,8 @@ public class ChannelInterruptService : IChannelInterruptService
                 item.Priority,
                 item.ExpiresAt);
 
-            if (item.Priority == 0 && _forceHandlers.TryGetValue(item.ChannelNumber, out Action handler))
+            bool isDue = item.AirAt is null || item.AirAt <= DateTimeOffset.Now;
+            if (item.Priority == 0 && isDue && _forceHandlers.TryGetValue(item.ChannelNumber, out Action handler))
             {
                 maybeForceHandler = handler;
             }
@@ -59,7 +60,7 @@ public class ChannelInterruptService : IChannelInterruptService
         }
     }
 
-    public Option<InterruptQueueItem> TryDequeue(string channelNumber)
+    public Option<InterruptQueueItem> TryDequeue(string channelNumber, DateTimeOffset asOf)
     {
         List<InterruptQueueItem> expired = [];
         Option<InterruptQueueItem> result = Option<InterruptQueueItem>.None;
@@ -68,11 +69,11 @@ public class ChannelInterruptService : IChannelInterruptService
         {
             if (_queues.TryGetValue(channelNumber, out List<InterruptQueueItem> queue))
             {
-                DateTimeOffset now = DateTimeOffset.Now;
-                expired.AddRange(queue.Where(i => i.ExpiresAt <= now));
-                queue.RemoveAll(i => i.ExpiresAt <= now);
+                expired.AddRange(queue.Where(i => i.ExpiresAt <= asOf));
+                queue.RemoveAll(i => i.ExpiresAt <= asOf);
 
                 Option<InterruptQueueItem> maybeNext = queue
+                    .Where(i => i.AirAt is null || i.AirAt <= asOf)
                     .OrderBy(i => i.Priority)
                     .ThenBy(i => i.EnqueuedAt)
                     .HeadOrNone();
@@ -98,6 +99,23 @@ public class ChannelInterruptService : IChannelInterruptService
         }
 
         return result;
+    }
+
+    public Option<DateTimeOffset> PeekNextAirTime(string channelNumber, DateTimeOffset after)
+    {
+        lock (_sync)
+        {
+            if (_queues.TryGetValue(channelNumber, out List<InterruptQueueItem> queue))
+            {
+                return queue
+                    .Where(i => i.AirAt.HasValue && i.AirAt > after && i.ExpiresAt > after)
+                    .OrderBy(i => i.AirAt)
+                    .HeadOrNone()
+                    .Map(i => i.AirAt.Value);
+            }
+
+            return Option<DateTimeOffset>.None;
+        }
     }
 
     public List<InterruptQueueItem> List(string channelNumber)

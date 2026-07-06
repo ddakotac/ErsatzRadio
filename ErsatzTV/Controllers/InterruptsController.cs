@@ -8,6 +8,7 @@ using ErsatzTV.Core.Interfaces.Repositories;
 using ErsatzTV.Core.Interfaces.Streaming;
 using ErsatzTV.Core.Interrupts;
 using LanguageExt;
+using static LanguageExt.Prelude;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 
@@ -23,7 +24,11 @@ namespace ErsatzTV.Controllers;
 //
 // priority 0 = emergency: cuts the currently playing item immediately.
 // priority >= 1 waits for the next item boundary. FIFO within a priority.
-// items that have not started playing by (enqueuedAt + ttlSeconds) are dropped.
+// airAt (iso 8601, optional) = scheduled: held until that stream/wall time; the session
+// worker truncates the preceding item so playback starts exactly on time when the item
+// is enqueued before the transcode covering the air time begins (rule of thumb: enqueue
+// at least a few minutes early).
+// items that have not started playing by ((airAt ?? enqueuedAt) + ttlSeconds) are dropped.
 [ApiController]
 [ApiExplorerSettings(IgnoreApi = true)]
 [Route("api/channels/{channelNumber}/interrupts")]
@@ -56,11 +61,18 @@ public class InterruptsController : ControllerBase
         [FromForm] int priority = 1,
         [FromForm] int ttlSeconds = DefaultTtlSeconds,
         [FromForm] string title = null,
+        [FromForm] string airAt = null,
         CancellationToken cancellationToken = default)
     {
         if (file is null || file.Length == 0)
         {
             return BadRequest(new { error = "an audio file is required" });
+        }
+
+        Either<IActionResult, Option<DateTimeOffset>> parsedAirAt = ParseAirAt(airAt, ttlSeconds);
+        foreach (IActionResult invalid in parsedAirAt.LeftAsEnumerable())
+        {
+            return invalid;
         }
 
         Option<IActionResult> maybeInvalid = await ValidateChannel(channelNumber, priority, ttlSeconds, cancellationToken);
@@ -91,6 +103,7 @@ public class InterruptsController : ControllerBase
         }
 
         foreach (TimeSpan duration in probeResult.RightAsEnumerable())
+        foreach (Option<DateTimeOffset> airAtValue in parsedAirAt.RightAsEnumerable())
         {
             InterruptQueueItem item = Enqueue(
                 id,
@@ -100,7 +113,8 @@ public class InterruptsController : ControllerBase
                 priority,
                 ttlSeconds,
                 duration,
-                deleteFileWhenDone: true);
+                deleteFileWhenDone: true,
+                airAtValue.ToNullable());
 
             return Ok(ToResponse(item));
         }
@@ -127,6 +141,12 @@ public class InterruptsController : ControllerBase
         int priority = request.Priority ?? 1;
         int ttlSeconds = request.TtlSeconds ?? DefaultTtlSeconds;
 
+        Either<IActionResult, Option<DateTimeOffset>> parsedAirAt = ParseAirAt(request.AirAt, ttlSeconds);
+        foreach (IActionResult invalid in parsedAirAt.LeftAsEnumerable())
+        {
+            return invalid;
+        }
+
         Option<IActionResult> maybeInvalid = await ValidateChannel(channelNumber, priority, ttlSeconds, cancellationToken);
         foreach (IActionResult invalid in maybeInvalid)
         {
@@ -140,6 +160,7 @@ public class InterruptsController : ControllerBase
         }
 
         foreach (TimeSpan duration in probeResult.RightAsEnumerable())
+        foreach (Option<DateTimeOffset> airAtValue in parsedAirAt.RightAsEnumerable())
         {
             InterruptQueueItem item = Enqueue(
                 Guid.NewGuid(),
@@ -149,7 +170,8 @@ public class InterruptsController : ControllerBase
                 priority,
                 ttlSeconds,
                 duration,
-                request.DeleteWhenDone ?? false);
+                request.DeleteWhenDone ?? false,
+                airAtValue.ToNullable());
 
             return Ok(ToResponse(item));
         }
@@ -179,7 +201,8 @@ public class InterruptsController : ControllerBase
         int priority,
         int ttlSeconds,
         TimeSpan duration,
-        bool deleteFileWhenDone)
+        bool deleteFileWhenDone,
+        DateTimeOffset? airAt = null)
     {
         DateTimeOffset now = DateTimeOffset.Now;
 
@@ -191,7 +214,8 @@ public class InterruptsController : ControllerBase
             Title = title,
             Priority = priority,
             EnqueuedAt = now,
-            ExpiresAt = now.AddSeconds(ttlSeconds),
+            AirAt = airAt,
+            ExpiresAt = (airAt ?? now).AddSeconds(ttlSeconds),
             Duration = duration,
             DeleteFileWhenDone = deleteFileWhenDone
         };
@@ -286,6 +310,28 @@ public class InterruptsController : ControllerBase
         return StatusCode(500, new { error = "ffprobe path is not configured" });
     }
 
+    private Either<IActionResult, Option<DateTimeOffset>> ParseAirAt(string airAt, int ttlSeconds)
+    {
+        if (string.IsNullOrWhiteSpace(airAt))
+        {
+            return Option<DateTimeOffset>.None;
+        }
+
+        if (!DateTimeOffset.TryParse(airAt, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out DateTimeOffset parsed))
+        {
+            return Left<IActionResult, Option<DateTimeOffset>>(
+                BadRequest(new { error = "airAt must be a valid iso 8601 timestamp" }));
+        }
+
+        if (parsed.AddSeconds(ttlSeconds) <= DateTimeOffset.Now)
+        {
+            return Left<IActionResult, Option<DateTimeOffset>>(
+                BadRequest(new { error = "airAt + ttlSeconds is already in the past" }));
+        }
+
+        return Some(parsed);
+    }
+
     private static object ToResponse(InterruptQueueItem item) =>
         new
         {
@@ -295,6 +341,7 @@ public class InterruptsController : ControllerBase
             priority = item.Priority,
             durationSeconds = Math.Round(item.Duration.TotalSeconds, 2),
             enqueuedAt = item.EnqueuedAt,
+            airAt = item.AirAt,
             expiresAt = item.ExpiresAt
         };
 
@@ -318,5 +365,6 @@ public class InterruptsController : ControllerBase
         int? Priority,
         int? TtlSeconds,
         string Title,
-        bool? DeleteWhenDone);
+        bool? DeleteWhenDone,
+        string AirAt);
 }

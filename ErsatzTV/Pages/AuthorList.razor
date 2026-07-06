@@ -1,0 +1,55 @@
+@page "/media/authors"
+@using ErsatzTV.Application.Audiobookshelf
+@inherits FragmentNavigationBase
+@inject IMediator Mediator
+
+<MudForm Style="max-height: 100%">
+    <div class="d-flex flex-column" style="height: 100vh; overflow-x: auto">
+        <MudContainer MaxWidth="MaxWidth.Large" Class="pt-8">
+            <MudText Typo="Typo.h4" Class="mb-4">Authors</MudText>
+            <MudTextField @bind-Value="_filter" Placeholder="Filter authors..." Immediate="true"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                          Class="mb-4" Clearable="true"/>
+            <MudTable Items="@FilteredAuthors" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm"
+                      RowsPerPage="100" Loading="@_loading">
+                <HeaderContent>
+                    <MudTh>Author</MudTh>
+                    <MudTh Style="text-align: right">Books</MudTh>
+                    <MudTh>Library</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Author">
+                        <MudLink Href="@($"media/books?author={context.ShowId}")">@context.Name</MudLink>
+                    </MudTd>
+                    <MudTd DataLabel="Books" Style="text-align: right">
+                        <MudLink Href="@($"media/tv/shows/{context.ShowId}")">@context.BookCount</MudLink>
+                    </MudTd>
+                    <MudTd DataLabel="Library">@context.LibraryName</MudTd>
+                </RowTemplate>
+                <PagerContent>
+                    <MudTablePager PageSizeOptions="new[] { 50, 100, 250 }"/>
+                </PagerContent>
+            </MudTable>
+        </MudContainer>
+    </div>
+</MudForm>
+
+@code {
+    private List<AudiobookAuthorViewModel> _authors = [];
+    private string _filter;
+    private bool _loading = true;
+
+    private IEnumerable<AudiobookAuthorViewModel> FilteredAuthors =>
+        string.IsNullOrWhiteSpace(_filter)
+            ? _authors
+            : _authors.Where(a =>
+                a.Name.Contains(_filter, StringComparison.OrdinalIgnoreCase) ||
+                a.LibraryName.Contains(_filter, StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _authors = await Mediator.Send(new GetAudiobookAuthors(), CancellationToken);
+        _loading = false;
+    }
+
+}

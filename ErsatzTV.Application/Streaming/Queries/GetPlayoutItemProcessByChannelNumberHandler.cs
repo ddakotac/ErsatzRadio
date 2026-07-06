@@ -286,6 +286,27 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
 
             bool isComplete = true;
 
+            // truncate the transcode at a scheduled interrupt's air time so the item
+            // boundary lands exactly there (stream timeline tracks wall time)
+            foreach (DateTimeOffset truncateAt in request.TruncateAt)
+            {
+                DateTimeOffset effectiveTruncateAt = truncateAt - (channel.PlayoutOffset ?? TimeSpan.Zero);
+                if (channel.SongVideoMode is ChannelSongVideoMode.AudioOnly &&
+                    effectiveTruncateAt > effectiveNow &&
+                    effectiveTruncateAt < finish)
+                {
+                    _logger.LogInformation(
+                        "Truncating playout item at {TruncateAt} on channel {Channel} for a scheduled interrupt",
+                        effectiveTruncateAt,
+                        channel.Number);
+
+                    finish = effectiveTruncateAt;
+                    duration = finish - effectiveNow;
+                    originalDuration = duration;
+                    isComplete = false;
+                }
+            }
+
             bool effectiveRealtime = request.HlsRealtime;
 
             // only work ahead on fallback filler up to 3 minutes in duration

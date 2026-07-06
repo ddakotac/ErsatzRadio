@@ -21,4 +21,12 @@ public record GetPlayoutItemProcessByChannelNumber(
     HlsRealtime,
     ChannelStart,
     PtsOffset,
-    FFmpegProfileId);
+    FFmpegProfileId)
+{
+    /// <summary>
+    ///     When set and within the playout item's span, the transcode is truncated at this
+    ///     instant (wall/stream time) so a scheduled interrupt can start exactly on time.
+    ///     Only applies to audio-only channels.
+    /// </summary>
+    public Option<DateTimeOffset> TruncateAt { get; init; } = Option<DateTimeOffset>.None;
+}

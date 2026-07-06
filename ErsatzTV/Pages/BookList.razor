@@ -1,0 +1,76 @@
+@page "/media/books"
+@using ErsatzTV.Application.Audiobookshelf
+@using static LanguageExt.Prelude
+@inherits FragmentNavigationBase
+@inject IMediator Mediator
+@inject NavigationManager NavigationManager
+
+<MudForm Style="max-height: 100%">
+    <div class="d-flex flex-column" style="height: 100vh; overflow-x: auto">
+        <MudContainer MaxWidth="MaxWidth.Large" Class="pt-8">
+            <MudStack Row="true" AlignItems="AlignItems.Baseline" Class="mb-4">
+                <MudText Typo="Typo.h4">Books</MudText>
+                @if (AuthorFilterName is not null)
+                {
+                    <MudChip T="string" Color="Color.Primary" OnClose="@ClearAuthor">@AuthorFilterName</MudChip>
+                }
+            </MudStack>
+            <MudTextField @bind-Value="_filter" Placeholder="Filter books..." Immediate="true"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                          Class="mb-4" Clearable="true"/>
+            <MudTable Items="@FilteredBooks" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm"
+                      RowsPerPage="100" Loading="@_loading">
+                <HeaderContent>
+                    <MudTh>Book</MudTh>
+                    <MudTh>Author</MudTh>
+                    <MudTh Style="text-align: right">Chapters</MudTh>
+                    <MudTh>Library</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Book">
+                        <MudLink Href="@($"media/tv/seasons/{context.SeasonId}")">@context.Title</MudLink>
+                    </MudTd>
+                    <MudTd DataLabel="Author">
+                        <MudLink Href="@($"media/books?author={context.ShowId}")">@context.Author</MudLink>
+                    </MudTd>
+                    <MudTd DataLabel="Chapters" Style="text-align: right">@context.ChapterCount</MudTd>
+                    <MudTd DataLabel="Library">@context.LibraryName</MudTd>
+                </RowTemplate>
+                <PagerContent>
+                    <MudTablePager PageSizeOptions="new[] { 50, 100, 250 }"/>
+                </PagerContent>
+            </MudTable>
+        </MudContainer>
+    </div>
+</MudForm>
+
+@code {
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "author")]
+    public int? AuthorShowId { get; set; }
+
+    private List<AudiobookBookViewModel> _books = [];
+    private string _filter;
+    private bool _loading = true;
+
+    private string AuthorFilterName =>
+        AuthorShowId.HasValue ? _books.FirstOrDefault()?.Author : null;
+
+    private IEnumerable<AudiobookBookViewModel> FilteredBooks =>
+        string.IsNullOrWhiteSpace(_filter)
+            ? _books
+            : _books.Where(b =>
+                b.Title.Contains(_filter, StringComparison.OrdinalIgnoreCase) ||
+                b.Author.Contains(_filter, StringComparison.OrdinalIgnoreCase) ||
+                b.LibraryName.Contains(_filter, StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _books = await Mediator.Send(new GetAudiobookBooks(Optional(AuthorShowId)), CancellationToken);
+        _loading = false;
+    }
+
+    private void ClearAuthor() => NavigationManager.NavigateTo("media/books");
+
+}

@@ -20,7 +20,18 @@ public record InterruptQueueItem
 
     public DateTimeOffset EnqueuedAt { get; init; } = DateTimeOffset.Now;
 
-    /// <summary>Items that have not STARTED playing by this time are dropped.</summary>
+    /// <summary>
+    ///     When set, the item is not eligible to play before this STREAM time. Because the
+    ///     hls timeline tracks wall time, this is effectively the on-air time. The session
+    ///     worker truncates the preceding scheduled transcode at this instant so the item
+    ///     starts exactly on time (when enqueued far enough ahead of the air time).
+    /// </summary>
+    public DateTimeOffset? AirAt { get; init; }
+
+    /// <summary>
+    ///     Items that have not STARTED playing by this STREAM time are dropped.
+    ///     For scheduled items this bounds lateness after the air time.
+    /// </summary>
     public DateTimeOffset ExpiresAt { get; init; }
 
     public TimeSpan Duration { get; init; }

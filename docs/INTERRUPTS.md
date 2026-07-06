@@ -13,7 +13,37 @@ Only channels with **Song Video Mode = Audio Only** accept interrupts.
 | Priority | Behavior |
 |----------|----------|
 | `0` | **Emergency.** Cuts the currently transcoding item immediately and plays as soon as possible. |
-| `1+` | Waits for the next item boundary (end of the current song/track). FIFO within a priority. |
+| `1+` | Waits for the next item boundary (end of the current song/track/chapter). FIFO within a priority. |
+
+On audiobook channels the boundary is the end of the current **chapter** (each
+chapter file is its own playout item), except single-file books which are one
+item end to end.
+
+## Scheduled items (airAt)
+
+Add `airAt` (ISO 8601) to either endpoint to schedule an item. Because the HLS
+timeline tracks wall time, `airAt` is the on-air time. The session worker
+**truncates the preceding scheduled item** at that instant, so the interrupt
+starts exactly on time -- provided it is enqueued before the transcode covering
+the air time begins. Rule of thumb: **enqueue at least a few minutes early**
+(one full item length + the ~60s buffer). Items enqueued too late play at the
+next boundary after their air time, bounded by TTL.
+
+TTL for scheduled items counts from `airAt`, not from enqueue -- so
+`airAt=09:00:00, ttlSeconds=120` means "play at 9:00, drop if it can't start by
+9:02".
+
+```bash
+# top-of-hour chime, enqueued by HA cron at :55
+curl -X POST http://ohs:8409/api/channels/70/interrupts/path \
+  -H "Content-Type: application/json" \
+  -d '{"path": "/media/shared/chimes/hour.mp3",
+       "airAt": "2026-07-06T09:00:00",
+       "ttlSeconds": 120,
+       "title": "Top of the hour"}'
+```
+
+Timestamps without an offset are interpreted in the server's local time zone.
 
 ## TTL
 

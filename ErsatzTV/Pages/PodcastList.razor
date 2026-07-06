@@ -1,0 +1,53 @@
+@page "/media/podcasts"
+@using ErsatzTV.Application.Audiobookshelf
+@inherits FragmentNavigationBase
+@inject IMediator Mediator
+
+<MudForm Style="max-height: 100%">
+    <div class="d-flex flex-column" style="height: 100vh; overflow-x: auto">
+        <MudContainer MaxWidth="MaxWidth.Large" Class="pt-8">
+            <MudText Typo="Typo.h4" Class="mb-4">Podcasts</MudText>
+            <MudTextField @bind-Value="_filter" Placeholder="Filter podcasts..." Immediate="true"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                          Class="mb-4" Clearable="true"/>
+            <MudTable Items="@FilteredPodcasts" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm"
+                      RowsPerPage="100" Loading="@_loading">
+                <HeaderContent>
+                    <MudTh>Podcast</MudTh>
+                    <MudTh Style="text-align: right">Episodes</MudTh>
+                    <MudTh>Library</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Podcast">
+                        <MudLink Href="@($"media/tv/shows/{context.ShowId}")">@context.Title</MudLink>
+                    </MudTd>
+                    <MudTd DataLabel="Episodes" Style="text-align: right">@context.EpisodeCount</MudTd>
+                    <MudTd DataLabel="Library">@context.LibraryName</MudTd>
+                </RowTemplate>
+                <PagerContent>
+                    <MudTablePager PageSizeOptions="new[] { 50, 100, 250 }"/>
+                </PagerContent>
+            </MudTable>
+        </MudContainer>
+    </div>
+</MudForm>
+
+@code {
+    private List<PodcastViewModel> _podcasts = [];
+    private string _filter;
+    private bool _loading = true;
+
+    private IEnumerable<PodcastViewModel> FilteredPodcasts =>
+        string.IsNullOrWhiteSpace(_filter)
+            ? _podcasts
+            : _podcasts.Where(p =>
+                p.Title.Contains(_filter, StringComparison.OrdinalIgnoreCase) ||
+                p.LibraryName.Contains(_filter, StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _podcasts = await Mediator.Send(new GetPodcasts(), CancellationToken);
+        _loading = false;
+    }
+
+}

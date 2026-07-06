@@ -57,6 +57,15 @@
     <data name="ButtonMediaAlbums" xml:space="preserve">
         <value>Albums</value>
     </data>
+    <data name="ButtonMediaAuthors" xml:space="preserve">
+        <value>Authors</value>
+    </data>
+    <data name="ButtonMediaBooks" xml:space="preserve">
+        <value>Books</value>
+    </data>
+    <data name="ButtonMediaPodcasts" xml:space="preserve">
+        <value>Podcasts</value>
+    </data>
     <data name="ButtonMediaSourcesJellyfin" xml:space="preserve">
         <value>Jellyfin</value>
     </data>

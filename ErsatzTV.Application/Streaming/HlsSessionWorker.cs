@@ -258,7 +258,7 @@ public class HlsSessionWorker : IHlsSessionWorker
 
                 // play any pending interrupt items before scheduled content
                 bool playedInterrupt = false;
-                foreach (InterruptQueueItem interruptItem in _interruptQueue.TryDequeue(_channelNumber))
+                foreach (InterruptQueueItem interruptItem in _interruptQueue.TryDequeue(_channelNumber, _transcodedUntil))
                 {
                     bool interruptRealtime = transcodedBuffer >= TimeSpan.FromSeconds(30);
                     if (!await TranscodeInterrupt(interruptItem, interruptRealtime, cancellationToken))
@@ -521,7 +521,10 @@ public class HlsSessionWorker : IHlsSessionWorker
                     ptsOffset,
                     _targetFramerate,
                     IsTroubleshooting: false,
-                    Option<int>.None);
+                    Option<int>.None)
+                {
+                    TruncateAt = _interruptQueue.PeekNextAirTime(_channelNumber, now)
+                };
 
             // _logger.LogInformation("Request {@Request}", request);
 

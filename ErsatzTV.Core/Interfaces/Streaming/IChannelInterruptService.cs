@@ -12,10 +12,17 @@ public interface IChannelInterruptService
     void Enqueue(InterruptQueueItem item);
 
     /// <summary>
-    ///     Removes and returns the highest-priority non-expired item for the
-    ///     channel; expired items are purged (and their temp files deleted).
+    ///     Removes and returns the highest-priority ELIGIBLE (air time reached) non-expired
+    ///     item for the channel, judged against the given stream time; expired items are
+    ///     purged (and their temp files deleted).
     /// </summary>
-    Option<InterruptQueueItem> TryDequeue(string channelNumber);
+    Option<InterruptQueueItem> TryDequeue(string channelNumber, DateTimeOffset asOf);
+
+    /// <summary>
+    ///     Earliest air time strictly after the given stream time, if any - used by the
+    ///     session worker to truncate a scheduled transcode at the air boundary.
+    /// </summary>
+    Option<DateTimeOffset> PeekNextAirTime(string channelNumber, DateTimeOffset after);
 
     List<InterruptQueueItem> List(string channelNumber);
 
