@@ -214,3 +214,50 @@ NEXT SESSION (session 8): AUTHOR/BOOK LIST VIEWS (dakota-requested) + carry-over
 - Icecast/direct MP3 endpoint (build order item 4) - carried over twice now
 - Possible: artwork on artist/album tables (getCoverArt by album id), chapter titles live-check,
   search facets, breadcrumbs
+
+
+### Session 8 (2026-07-05): scheduled interrupts (airAt) + author/book/podcast list views (branch feature/scheduled-interrupts-and-list-views)
+COMPILE-VERIFIED (app + scanner, 0 errors).
+
+Live-test results driving this session (all three interrupt mechanisms validated by dakota):
+- boundary (p1): played at song boundary, PTS-continuous, resumed mid-schedule. TTL expiry validated.
+- emergency (p0): force-cut + PTS recovery exact (recovered until == enqueue + buffer), aired ~50s later
+- KEY INSIGHT: the hls timeline IS wall time (program_date_time; _transcodedUntil wall-stamped).
+  "air at T" == "make the item boundary land at stream position T". No timer force-cutting needed.
+
+Scheduled interrupts (airAt):
+- InterruptQueueItem.AirAt (nullable); ExpiresAt = (airAt ?? enqueuedAt) + ttl - TTL bounds LATENESS
+- TryDequeue(channel, asOf) judges eligibility + expiry in STREAM time (worker passes _transcodedUntil)
+- PeekNextAirTime(channel, after) -> worker sets TruncateAt on GetPlayoutItemProcessByChannelNumber
+  (non-positional init prop, no caller breakage)
+- handler clamps finish/duration when TruncateAt in (effectiveNow, finish), audio-only channels only,
+  playout-offset-adjusted; isComplete=false -> SeekAndRealtime -> next loop dequeues the due item at
+  exactly its air time
+- priority 0 force handler only fires when the item is already due (scheduled p0 waits for truncation)
+- api: airAt (iso 8601, AssumeLocal) on both endpoints; 400 if unparseable or airAt+ttl already past;
+  LanguageExt GOTCHA: Either<L, DateTimeOffset?> throws on null Right - use Either<L, Option<T>>
+- v1 limitation (documented): items enqueued after the transcode covering their air time started play
+  late (next boundary after due, TTL-bounded). Enqueue a few minutes early. Timer-based late force-cut
+  and duck style deferred to session 9.
+
+Author/book/podcast list views (dakota's option c + breakout):
+- Distinguished by AudiobookshelfShow.ItemId prefix (author:/podcast:); book seasons joined via
+  AudiobookshelfSeasons x AudiobookshelfShows on ShowId
+- GetAudiobookAuthors / GetAudiobookBooks(Option<int> ShowId) / GetPodcasts - EF constructor
+  projections with counts + library name
+- Pages: media/authors (Author|Books|Library; name -> books?author={showId}, count -> show tiles),
+  media/books (Book|Author|Chapters|Library; book -> season detail, ?author= filter chip),
+  media/podcasts (Podcast|Episodes|Library -> show detail)
+- Nav: "TV Shows" entry REPLACED by Authors/Books/Podcasts (tiles page still routable at
+  media/tv/shows via search links). resx en+pl.
+- MediaCard titles: 2-line clamp (-webkit-line-clamp) instead of single-line nowrap ellipsis
+
+NEXT SESSION (session 9): DUCKING + ANNOUNCER
+- style: duck - force-cut then resume scheduled item WITH overlay as second input, sidechain-ducked,
+  single process (cut-point recovery + seek-resume already proven by p0 test). filter_complex work:
+  amix/sidechaincompress, duck level + fades, apad/duration interaction
+- tier-1 announcer: per-channel toggle, TTS template ("now playing {title} by {author}") rendered at
+  item boundaries via configurable TTS endpoint (wyoming/piper http or command), enqueued as boundary
+  interrupt
+- scheduled live-test findings (truncation accuracy) from dakota
+- carried: audio-only error process (anullsrc), icecast/direct MP3 endpoint (x3 now)
