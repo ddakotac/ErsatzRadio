@@ -261,3 +261,41 @@ NEXT SESSION (session 9): DUCKING + ANNOUNCER
   interrupt
 - scheduled live-test findings (truncation accuracy) from dakota
 - carried: audio-only error process (anullsrc), icecast/direct MP3 endpoint (x3 now)
+
+
+### Session 9 (2026-07-06): duck-style interrupts + tts announcer (branch feature/duck-and-announcer)
+COMPILE-VERIFIED (app + scanner, 0 errors). Session 8 scheduled interrupts validated live by dakota
+first (truncation landed the injection at exactly airAt; work-ahead chunking composed correctly with
+truncation via incomplete-item state).
+
+Duck style (style=duck, duckPercent, both endpoints):
+- KEY DESIGN: duck rides the SCHEDULED transcode path, not the interrupt path. Worker stashes the
+  dequeued duck item as _pendingDuck; the next scheduled transcode carries MaybeDuckOverlay on
+  GetPlayoutItemProcessByChannelNumber. Path replacement/fallback/seek/playout-offset all come free.
+- Handler clamps finish to overlay duration (isComplete=false -> SeekAndRealtime -> seamless resume:
+  the mixed bed audio is byte-identical to what resume-by-seek produces)
+- Duck transcodes force effectiveRealtime=true (the 44s work-ahead chunk cap would cut overlays)
+- ForAudioOnlyPlayoutItem grew Option<DuckOverlay>: second -i input + filter_complex
+  [0:a]volume={bed}[bed];[bed][1:a]amix=duration=first:normalize=0[mix];[mix]apad[aout], -map [aout]
+- Copy audio profile: overlay skipped with warning (needs transcode)
+- Overlay longer than item remainder: cut at item boundary
+- Temp file lifecycle: consumed duck tracked in _duckToCleanUp, deleted at next loop top + Run finally
+- Slug/offline state: pending duck dropped with warning
+
+Announcer (tier 1, api-configured, NEEDS LIVE TEST - tts glue untestable in sandbox):
+- config elements (no migration): announcer.tts.url (global; POST text -> audio bytes, e.g. piper
+  http server) + per-channel announcer.{num}.{enabled,template,style,duck_percent}
+- ChannelAnnouncerService (scoped per session worker): called at loop top with _transcodedUntil;
+  fires only when a FillerKind.None item starts within 5s of that stream time; dedups per media item
+  (dedup set even on tts failure to avoid hammering); 30s config cache
+- template vars: {title} {artist} {album} {show}/{author} {season}/{book}; default "Now playing: {title}"
+- enqueues priority-1 duck (default) interrupt, ttl 60s from item start, DeleteFileWhenDone
+- AnnouncerController: GET/PUT /api/channels/{num}/announcer, GET/PUT /api/announcer/tts
+
+NEXT SESSION (session 10) candidates:
+- LIVE TEST duck (boundary + emergency + scheduled variants) and announcer end-to-end with a piper
+  http endpoint; expect filter_complex tuning (amix normalize behavior, bed fade in/out polish)
+- late-scheduled force-cut refinement (enqueue-after-transcode-started case)
+- audio-only error process (anullsrc) - carried x4
+- icecast/direct MP3 endpoint - carried x4
+- ui: interrupt queue + announcer config page; books tiles/list toggle
