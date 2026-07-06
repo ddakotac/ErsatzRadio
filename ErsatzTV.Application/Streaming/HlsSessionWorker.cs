@@ -42,8 +42,11 @@ public class HlsSessionWorker : IHlsSessionWorker
     private readonly Lock _sync = new();
     private readonly Option<FrameRate> _targetFramerate;
     private readonly IChannelInterruptService _interruptQueue;
+    private readonly IChannelAnnouncerService _announcerService;
     private CancellationTokenSource _cancellationTokenSource;
     private CancellationTokenSource _interruptCts;
+    private InterruptQueueItem _pendingDuck;
+    private InterruptQueueItem _duckToCleanUp;
     private string _channelNumber;
     private DateTimeOffset _channelStart;
     private int _discontinuitySequence;
@@ -73,6 +76,7 @@ public class HlsSessionWorker : IHlsSessionWorker
         _serviceScope = serviceScopeFactory.CreateScope();
         _mediator = _serviceScope.ServiceProvider.GetRequiredService<IMediator>();
         _interruptQueue = _serviceScope.ServiceProvider.GetRequiredService<IChannelInterruptService>();
+        _announcerService = _serviceScope.ServiceProvider.GetRequiredService<IChannelAnnouncerService>();
         _graphicsEngine = graphicsEngine;
         _outputFormatKind = outputFormatKind;
         _hlsInitSegmentCache = hlsInitSegmentCache;
@@ -256,17 +260,39 @@ public class HlsSessionWorker : IHlsSessionWorker
                 var transcodedBuffer = TimeSpan.FromSeconds(
                     Math.Max(0, _transcodedUntil.Subtract(DateTimeOffset.Now).TotalSeconds));
 
+                // clean up the previous duck overlay's temp file, if any
+                if (_duckToCleanUp is not null)
+                {
+                    _interruptQueue.CleanUpFile(_duckToCleanUp);
+                    _duckToCleanUp = null;
+                }
+
+                // announce the upcoming item (enqueues a duck/replace interrupt when the
+                // announcer is enabled and a new item starts at the current stream time)
+                await _announcerService.AnnounceUpcomingItem(_channelNumber, _transcodedUntil, cancellationToken);
+
                 // play any pending interrupt items before scheduled content
                 bool playedInterrupt = false;
-                foreach (InterruptQueueItem interruptItem in _interruptQueue.TryDequeue(_channelNumber, _transcodedUntil))
+                if (_pendingDuck is null)
                 {
-                    bool interruptRealtime = transcodedBuffer >= TimeSpan.FromSeconds(30);
-                    if (!await TranscodeInterrupt(interruptItem, interruptRealtime, cancellationToken))
+                    foreach (InterruptQueueItem interruptItem in _interruptQueue.TryDequeue(_channelNumber, _transcodedUntil))
                     {
-                        return;
-                    }
+                        if (interruptItem.Style == InterruptStyle.Duck)
+                        {
+                            // consumed by the next scheduled transcode as a mixed overlay
+                            _pendingDuck = interruptItem;
+                        }
+                        else
+                        {
+                            bool interruptRealtime = transcodedBuffer >= TimeSpan.FromSeconds(30);
+                            if (!await TranscodeInterrupt(interruptItem, interruptRealtime, cancellationToken))
+                            {
+                                return;
+                            }
 
-                    playedInterrupt = true;
+                            playedInterrupt = true;
+                        }
+                    }
                 }
 
                 if (playedInterrupt)
@@ -294,6 +320,17 @@ public class HlsSessionWorker : IHlsSessionWorker
         }
         finally
         {
+            foreach (InterruptQueueItem leftover in new[] { _pendingDuck, _duckToCleanUp })
+            {
+                if (leftover is not null)
+                {
+                    _interruptQueue.CleanUpFile(leftover);
+                }
+            }
+
+            _pendingDuck = null;
+            _duckToCleanUp = null;
+
             if (_timer is not null)
             {
                 lock (_sync)
@@ -523,8 +560,39 @@ public class HlsSessionWorker : IHlsSessionWorker
                     IsTroubleshooting: false,
                     Option<int>.None)
                 {
-                    TruncateAt = _interruptQueue.PeekNextAirTime(_channelNumber, now)
+                    TruncateAt = _interruptQueue.PeekNextAirTime(_channelNumber, now),
+                    MaybeDuckOverlay = _pendingDuck is not null
+                        ? new DuckOverlay(_pendingDuck.Path, _pendingDuck.Duration, _pendingDuck.DuckBedVolume)
+                        : Option<DuckOverlay>.None
                 };
+
+            // whatever happens to this transcode, the duck overlay is consumed by it
+            InterruptQueueItem consumedDuck = _pendingDuck;
+            _pendingDuck = null;
+
+            if (consumedDuck is not null && isSlug)
+            {
+                _logger.LogWarning(
+                    "Dropping duck interrupt {Id} on channel {Channel}; channel is in slug/offline state",
+                    consumedDuck.Id,
+                    _channelNumber);
+
+                _interruptQueue.CleanUpFile(consumedDuck);
+                consumedDuck = null;
+            }
+            else if (consumedDuck is not null)
+            {
+                _logger.LogInformation(
+                    "Ducking interrupt {Title} ({Id}) over scheduled content on channel {Channel} at {Start} (bed volume {Volume})",
+                    consumedDuck.Title,
+                    consumedDuck.Id,
+                    _channelNumber,
+                    _transcodedUntil,
+                    consumedDuck.DuckBedVolume);
+
+                // temp file is deleted at the top of the next session loop iteration
+                _duckToCleanUp = consumedDuck;
+            }
 
             // _logger.LogInformation("Request {@Request}", request);
 

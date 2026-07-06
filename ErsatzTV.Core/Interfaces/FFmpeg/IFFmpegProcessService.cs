@@ -1,5 +1,6 @@
 ﻿using CliWrap;
 using ErsatzTV.Core.Domain;
+using ErsatzTV.Core.Interrupts;
 using ErsatzTV.Core.Domain.Filler;
 using ErsatzTV.Core.FFmpeg;
 using ErsatzTV.FFmpeg;
@@ -125,5 +126,6 @@ public interface IFFmpegProcessService
         TimeSpan ptsOffset,
         bool hlsRealtime,
         bool isLiveInput,
+        Option<DuckOverlay> maybeDuckOverlay,
         CancellationToken cancellationToken);
 }

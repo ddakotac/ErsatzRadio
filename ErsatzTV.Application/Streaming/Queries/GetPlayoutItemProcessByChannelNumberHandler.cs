@@ -11,6 +11,7 @@ using ErsatzTV.Core.Extensions;
 using ErsatzTV.Core.FFmpeg;
 using ErsatzTV.Core.Interfaces.Emby;
 using ErsatzTV.Core.Interfaces.FFmpeg;
+using ErsatzTV.Core.Interrupts;
 using ErsatzTV.Core.Interfaces.Jellyfin;
 using ErsatzTV.Core.Interfaces.Plex;
 using ErsatzTV.Core.Interfaces.Repositories;
@@ -286,6 +287,21 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
 
             bool isComplete = true;
 
+            // a duck overlay bounds this transcode to the overlay's duration; the item
+            // resumes seamlessly afterward because resume-by-seek reproduces the same
+            // bed audio the mix contained
+            foreach (DuckOverlay overlay in request.MaybeDuckOverlay)
+            {
+                if (channel.SongVideoMode is ChannelSongVideoMode.AudioOnly &&
+                    effectiveNow + overlay.Duration < finish)
+                {
+                    finish = effectiveNow + overlay.Duration;
+                    duration = finish - effectiveNow;
+                    originalDuration = duration;
+                    isComplete = false;
+                }
+            }
+
             // truncate the transcode at a scheduled interrupt's air time so the item
             // boundary lands exactly there (stream timeline tracks wall time)
             foreach (DateTimeOffset truncateAt in request.TruncateAt)
@@ -308,6 +324,12 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
             }
 
             bool effectiveRealtime = request.HlsRealtime;
+
+            // duck transcodes are never work-ahead chunked - the overlay must play whole
+            if (request.MaybeDuckOverlay.IsSome)
+            {
+                effectiveRealtime = true;
+            }
 
             // only work ahead on fallback filler up to 3 minutes in duration
             // since we always transcode a full fallback filler item
@@ -471,6 +493,7 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
                     request.PtsOffset,
                     effectiveRealtime,
                     playoutItemWithPath.PlayoutItem.MediaItem is RemoteStream { IsLive: true },
+                    request.MaybeDuckOverlay,
                     cancellationToken);
             }
             else

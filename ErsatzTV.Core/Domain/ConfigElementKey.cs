@@ -14,6 +14,11 @@ public class ConfigElementKey
     public static ConfigElementKey MinimumLogLevelHttp => new("log.minimum_level.http");
     public static ConfigElementKey FFmpegPath => new("ffmpeg.ffmpeg_path");
     public static ConfigElementKey FFprobePath => new("ffmpeg.ffprobe_path");
+    public static ConfigElementKey AnnouncerTtsUrl => new("announcer.tts.url");
+    public static ConfigElementKey AnnouncerEnabled(string channelNumber) => new($"announcer.{channelNumber}.enabled");
+    public static ConfigElementKey AnnouncerTemplate(string channelNumber) => new($"announcer.{channelNumber}.template");
+    public static ConfigElementKey AnnouncerStyle(string channelNumber) => new($"announcer.{channelNumber}.style");
+    public static ConfigElementKey AnnouncerDuckPercent(string channelNumber) => new($"announcer.{channelNumber}.duck_percent");
     public static ConfigElementKey FFmpegDefaultProfileId => new("ffmpeg.default_profile_id");
     public static ConfigElementKey FFmpegDefaultResolutionId => new("ffmpeg.default_resolution_id");
     public static ConfigElementKey FFmpegSaveReports => new("ffmpeg.save_reports");

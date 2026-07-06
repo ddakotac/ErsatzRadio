@@ -38,4 +38,9 @@ public record InterruptQueueItem
 
     /// <summary>True for files uploaded through the injection api; deleted after play/expiry.</summary>
     public bool DeleteFileWhenDone { get; init; }
+
+    public InterruptStyle Style { get; init; } = InterruptStyle.Replace;
+
+    /// <summary>Bed (scheduled content) volume while a duck-style item plays, 0..1.</summary>
+    public double DuckBedVolume { get; init; } = 0.3;
 }

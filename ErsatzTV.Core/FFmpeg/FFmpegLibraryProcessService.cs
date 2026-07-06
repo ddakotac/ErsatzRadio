@@ -7,6 +7,7 @@ using ErsatzTV.Core.Domain;
 using ErsatzTV.Core.Domain.Filler;
 using ErsatzTV.Core.Extensions;
 using ErsatzTV.Core.Interfaces.FFmpeg;
+using ErsatzTV.Core.Interrupts;
 using ErsatzTV.Core.Interfaces.Metadata;
 using ErsatzTV.Core.Interfaces.Repositories;
 using ErsatzTV.Core.Interfaces.Streaming;
@@ -1215,6 +1216,7 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
         TimeSpan ptsOffset,
         bool hlsRealtime,
         bool isLiveInput,
+        Option<DuckOverlay> maybeDuckOverlay,
         CancellationToken cancellationToken)
     {
         // audio-only channels bypass the video pipeline builder entirely; the
@@ -1240,6 +1242,15 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
             FFmpegProfileAudioFormat.Copy => "copy",
             _ => "aac"
         };
+
+        // ducking requires a transcode; with a copy profile the overlay is skipped
+        if (audioCodec == "copy" && maybeDuckOverlay.IsSome)
+        {
+            _logger.LogWarning(
+                "Cannot duck interrupt audio over channel {Channel} with a copy audio profile; skipping overlay",
+            channel.Number);
+            maybeDuckOverlay = Option<DuckOverlay>.None;
+        }
 
         string transcodeFolder = Path.Combine(FileSystemLayout.TranscodeFolder, channel.Number);
         Directory.CreateDirectory(transcodeFolder);
@@ -1269,9 +1280,23 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
 
         arguments.AddRange(["-i", audioPath]);
 
+        foreach (DuckOverlay overlay in maybeDuckOverlay)
+        {
+            if (hlsRealtime && !isLiveInput)
+            {
+                arguments.AddRange(["-readrate", "1.0"]);
+            }
+
+            arguments.AddRange(["-i", overlay.Path]);
+        }
+
+        if (maybeDuckOverlay.IsNone)
+        {
+            arguments.AddRange(["-map", "0:a"]);
+        }
+
         arguments.AddRange(
         [
-            "-map", "0:a",
             "-vn", "-sn", "-dn",
             "-map_metadata", "-1",
             "-map_chapters", "-1",
@@ -1286,10 +1311,30 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
                 "-maxrate:a", $"{profile.AudioBitrate}k",
                 "-bufsize:a", $"{profile.AudioBufferSize}k",
                 "-ar", $"{profile.AudioSampleRate}k",
-                "-ac", profile.AudioChannels.ToString(CultureInfo.InvariantCulture),
-                "-af",
-                $"apad=whole_dur={limit.TotalSeconds.ToString(NumberFormatInfo.InvariantInfo)}s"
+                "-ac", profile.AudioChannels.ToString(CultureInfo.InvariantCulture)
             ]);
+
+            string padSeconds = limit.TotalSeconds.ToString(NumberFormatInfo.InvariantInfo);
+
+            if (maybeDuckOverlay.IsNone)
+            {
+                arguments.AddRange(["-af", $"apad=whole_dur={padSeconds}s"]);
+            }
+
+            foreach (DuckOverlay overlay in maybeDuckOverlay)
+            {
+                string bedVolume = Math.Clamp(overlay.BedVolume, 0, 1)
+                    .ToString(NumberFormatInfo.InvariantInfo);
+
+                arguments.AddRange(
+                [
+                    "-filter_complex",
+                    $"[0:a]volume={bedVolume}[bed];" +
+                    "[bed][1:a]amix=inputs=2:duration=first:dropout_transition=0.5:normalize=0[mix];" +
+                    $"[mix]apad=whole_dur={padSeconds}s[aout]",
+                    "-map", "[aout]"
+                ]);
+            }
         }
 
         arguments.AddRange(

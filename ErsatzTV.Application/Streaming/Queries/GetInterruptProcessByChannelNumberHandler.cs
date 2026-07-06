@@ -2,6 +2,7 @@ using ErsatzTV.Core;
 using ErsatzTV.Core.Domain;
 using ErsatzTV.Core.FFmpeg;
 using ErsatzTV.Core.Interfaces.FFmpeg;
+using ErsatzTV.Core.Interrupts;
 using ErsatzTV.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -65,6 +66,7 @@ public class GetInterruptProcessByChannelNumberHandler : FFmpegProcessHandler<Ge
             request.PtsOffset,
             request.HlsRealtime,
             isLiveInput: false,
+            Option<DuckOverlay>.None,
             cancellationToken);
 
         var result = new PlayoutItemProcessModel(

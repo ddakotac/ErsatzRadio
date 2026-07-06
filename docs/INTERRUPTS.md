@@ -45,6 +45,62 @@ curl -X POST http://ohs:8409/api/channels/70/interrupts/path \
 
 Timestamps without an offset are interpreted in the server's local time zone.
 
+## Styles (replace vs duck)
+
+Every interrupt has a `style`:
+
+| Style | Behavior |
+|-------|----------|
+| `replace` (default) | Interrupt audio replaces scheduled content for its duration. |
+| `duck` | Interrupt audio is mixed OVER scheduled content, which continues underneath at `duckPercent` volume (default 30). Chimes, idents, announcements. |
+
+Duck works with every timing mode (boundary, emergency, scheduled). The scheduled
+content is never paused -- the bed audio in the mix is exactly what resume-by-seek
+would play, so the transition out of the duck is seamless. Requirements and edges:
+
+- Requires a transcoding audio profile (aac/ac3). With a `Copy` profile the overlay
+  is skipped with a warning.
+- If less of the current item remains than the overlay's duration, the overlay is
+  cut at the item boundary.
+- An emergency (`priority=0`) duck cuts the current transcode and resumes it
+  immediately WITH the overlay mixed in -- the listener hears the item continue,
+  ducked, under the announcement.
+
+```bash
+curl -X POST http://ohs:8409/api/channels/70/interrupts \
+  -F "file=@chime.wav" -F "style=duck" -F "duckPercent=25" \
+  -F "priority=0" -F "ttlSeconds=120" -F "title=Doorbell"
+```
+
+## Announcer (auto "now playing" TTS)
+
+Per-channel DJ-style announcements: when a new scheduled item starts, its metadata is
+rendered through a template, synthesized via a TTS endpoint, and ducked over the
+item's opening (style configurable).
+
+```bash
+# global tts endpoint: POST plain text -> audio bytes (e.g. a piper http server)
+curl -X PUT http://ohs:8409/api/announcer/tts \
+  -H "Content-Type: application/json" -d '{"url": "http://sophia:5000/api/tts"}'
+
+# enable per channel
+curl -X PUT http://ohs:8409/api/channels/70/announcer \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true, "template": "Now playing: {title} by {artist}", "style": "duck", "duckPercent": 25}'
+
+# check config
+curl http://ohs:8409/api/channels/70/announcer
+```
+
+Template variables: `{title}`, `{artist}`, `{album}` (songs); `{title}`, `{show}`/
+`{author}`, `{season}`/`{book}` (episodes/chapters). Audiobook example:
+`"{title}, from {book}, by {author}"`.
+
+Behavior notes: announcements only fire at (within 5s of) an item's scheduled start,
+never for filler, and each item is announced once per session. TTS failures skip the
+announcement and never disturb the stream. The TTS endpoint contract is: HTTP POST,
+plain-text body, audio bytes response.
+
 ## TTL
 
 Every item carries a TTL (default 300 s). An item that has not **started** playing by

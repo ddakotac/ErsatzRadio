@@ -29,6 +29,9 @@ namespace ErsatzTV.Controllers;
 // is enqueued before the transcode covering the air time begins (rule of thumb: enqueue
 // at least a few minutes early).
 // items that have not started playing by ((airAt ?? enqueuedAt) + ttlSeconds) are dropped.
+// style=replace (default) inserts the audio between/over scheduled content; style=duck mixes
+// the audio OVER scheduled content, which continues underneath at duckPercent volume
+// (default 30). duck requires a transcoding (non-copy) audio profile.
 [ApiController]
 [ApiExplorerSettings(IgnoreApi = true)]
 [Route("api/channels/{channelNumber}/interrupts")]
@@ -62,6 +65,8 @@ public class InterruptsController : ControllerBase
         [FromForm] int ttlSeconds = DefaultTtlSeconds,
         [FromForm] string title = null,
         [FromForm] string airAt = null,
+        [FromForm] string style = null,
+        [FromForm] int duckPercent = 30,
         CancellationToken cancellationToken = default)
     {
         if (file is null || file.Length == 0)
@@ -71,6 +76,12 @@ public class InterruptsController : ControllerBase
 
         Either<IActionResult, Option<DateTimeOffset>> parsedAirAt = ParseAirAt(airAt, ttlSeconds);
         foreach (IActionResult invalid in parsedAirAt.LeftAsEnumerable())
+        {
+            return invalid;
+        }
+
+        Either<IActionResult, InterruptStyle> parsedStyle = ParseStyle(style, duckPercent);
+        foreach (IActionResult invalid in parsedStyle.LeftAsEnumerable())
         {
             return invalid;
         }
@@ -104,6 +115,7 @@ public class InterruptsController : ControllerBase
 
         foreach (TimeSpan duration in probeResult.RightAsEnumerable())
         foreach (Option<DateTimeOffset> airAtValue in parsedAirAt.RightAsEnumerable())
+        foreach (InterruptStyle styleValue in parsedStyle.RightAsEnumerable())
         {
             InterruptQueueItem item = Enqueue(
                 id,
@@ -114,7 +126,9 @@ public class InterruptsController : ControllerBase
                 ttlSeconds,
                 duration,
                 deleteFileWhenDone: true,
-                airAtValue.ToNullable());
+                airAtValue.ToNullable(),
+                styleValue,
+                duckPercent);
 
             return Ok(ToResponse(item));
         }
@@ -147,6 +161,13 @@ public class InterruptsController : ControllerBase
             return invalid;
         }
 
+        int duckPercent = request.DuckPercent ?? 30;
+        Either<IActionResult, InterruptStyle> parsedStyle = ParseStyle(request.Style, duckPercent);
+        foreach (IActionResult invalid in parsedStyle.LeftAsEnumerable())
+        {
+            return invalid;
+        }
+
         Option<IActionResult> maybeInvalid = await ValidateChannel(channelNumber, priority, ttlSeconds, cancellationToken);
         foreach (IActionResult invalid in maybeInvalid)
         {
@@ -161,6 +182,7 @@ public class InterruptsController : ControllerBase
 
         foreach (TimeSpan duration in probeResult.RightAsEnumerable())
         foreach (Option<DateTimeOffset> airAtValue in parsedAirAt.RightAsEnumerable())
+        foreach (InterruptStyle styleValue in parsedStyle.RightAsEnumerable())
         {
             InterruptQueueItem item = Enqueue(
                 Guid.NewGuid(),
@@ -171,7 +193,9 @@ public class InterruptsController : ControllerBase
                 ttlSeconds,
                 duration,
                 request.DeleteWhenDone ?? false,
-                airAtValue.ToNullable());
+                airAtValue.ToNullable(),
+                styleValue,
+                duckPercent);
 
             return Ok(ToResponse(item));
         }
@@ -202,7 +226,9 @@ public class InterruptsController : ControllerBase
         int ttlSeconds,
         TimeSpan duration,
         bool deleteFileWhenDone,
-        DateTimeOffset? airAt = null)
+        DateTimeOffset? airAt = null,
+        InterruptStyle style = InterruptStyle.Replace,
+        int duckPercent = 30)
     {
         DateTimeOffset now = DateTimeOffset.Now;
 
@@ -217,7 +243,9 @@ public class InterruptsController : ControllerBase
             AirAt = airAt,
             ExpiresAt = (airAt ?? now).AddSeconds(ttlSeconds),
             Duration = duration,
-            DeleteFileWhenDone = deleteFileWhenDone
+            DeleteFileWhenDone = deleteFileWhenDone,
+            Style = style,
+            DuckBedVolume = Math.Clamp(duckPercent, 0, 100) / 100.0
         };
 
         _interruptQueue.Enqueue(item);
@@ -332,6 +360,29 @@ public class InterruptsController : ControllerBase
         return Some(parsed);
     }
 
+    private static Either<IActionResult, InterruptStyle> ParseStyle(string style, int duckPercent)
+    {
+        if (duckPercent is < 0 or > 100)
+        {
+            return Left<IActionResult, InterruptStyle>(
+                new BadRequestObjectResult(new { error = "duckPercent must be between 0 and 100" }));
+        }
+
+        if (string.IsNullOrWhiteSpace(style) ||
+            string.Equals(style, "replace", StringComparison.OrdinalIgnoreCase))
+        {
+            return InterruptStyle.Replace;
+        }
+
+        if (string.Equals(style, "duck", StringComparison.OrdinalIgnoreCase))
+        {
+            return InterruptStyle.Duck;
+        }
+
+        return Left<IActionResult, InterruptStyle>(
+            new BadRequestObjectResult(new { error = "style must be 'replace' or 'duck'" }));
+    }
+
     private static object ToResponse(InterruptQueueItem item) =>
         new
         {
@@ -342,7 +393,9 @@ public class InterruptsController : ControllerBase
             durationSeconds = Math.Round(item.Duration.TotalSeconds, 2),
             enqueuedAt = item.EnqueuedAt,
             airAt = item.AirAt,
-            expiresAt = item.ExpiresAt
+            expiresAt = item.ExpiresAt,
+            style = item.Style.ToString().ToLowerInvariant(),
+            duckPercent = (int)Math.Round(item.DuckBedVolume * 100)
         };
 
     private void TryDelete(string path)
@@ -366,5 +419,7 @@ public class InterruptsController : ControllerBase
         int? TtlSeconds,
         string Title,
         bool? DeleteWhenDone,
-        string AirAt);
+        string AirAt,
+        string Style,
+        int? DuckPercent);
 }
