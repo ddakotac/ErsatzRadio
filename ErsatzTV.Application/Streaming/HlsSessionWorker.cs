@@ -467,6 +467,11 @@ public class HlsSessionWorker : IHlsSessionWorker
             // after starting at zero and completing the item, start at zero again, transcode method will throttle if needed
             HlsSessionState.ZeroAndWorkAhead => HlsSessionState.ZeroAndWorkAhead,
 
+            // duck overlays and scheduled-interrupt truncation produce INCOMPLETE realtime
+            // transcodes; the next transcode must seek back into the item, not restart it
+            HlsSessionState.SeekAndRealtime when !isComplete => HlsSessionState.SeekAndRealtime,
+            HlsSessionState.ZeroAndRealtime when !isComplete => HlsSessionState.SeekAndRealtime,
+
             // realtime will always complete items, so start next at zero
             HlsSessionState.SeekAndRealtime => HlsSessionState.ZeroAndRealtime,
 
