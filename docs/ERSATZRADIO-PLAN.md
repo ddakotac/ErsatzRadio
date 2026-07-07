@@ -338,3 +338,40 @@ NEXT SESSION (session 11) candidates:
   playlist/collection tags after rescan (verify tag:"name" queries + smart collections)
 - late-scheduled force-cut; audio-only error process (anullsrc, x5); icecast endpoint (x5)
 - ui: announcer + tts endpoints config page, interrupt queue page, books tiles/list toggle
+
+
+### Session 11 (2026-07-07): ui + cleanup (branch feature/ui-cleanup)
+COMPILE-VERIFIED (app + scanner, 0 errors). Session 10 fully validated live first: wyoming tts
+against real piper WORKED FIRST TRY (announcer end-to-end with voice), navidrome playlist tags
+(61 playlists/6513 songs), abs collection/series tags (after hotfix 0013: season GetOrAdd missing
+.ThenInclude(sm => sm.Tags) -> null Tags crash in the new sync), {artist} template confirmed.
+
+UI:
+- /settings/announcer (nav: Settings > Announcer): tts endpoints table (add/delete, wyoming:// or
+  http(s):// validation) + per-channel announcer form (audio-only channel select; enabled/template/
+  style/duckPercent/ttsEndpoint select/voice override). Direct IConfigElementRepository access,
+  deliberately duplicating the small controller read/write logic for leanness.
+- /system/interrupts (nav: Support > Interrupts): audio-only channel selector, sessionActive chip,
+  queue table (title/priority/style/duration/airAt/expires) with per-row remove + clear all, 5s
+  auto-refresh (System.Timers + InvokeAsync).
+- books tiles/list toggle: ?view=tiles query param (linkable, author filter preserved);
+  AudiobookBookViewModel gained Poster (season poster artwork projected in the EF query, abs://
+  rewritten to relative proxy url via AudiobookshelfUrl.RelativeProxyForArtwork + width=440 in the
+  handler - same transform the card mapper uses); tiles render shared MediaCard components,
+  Href=media/tv/seasons/{id}.
+
+Docs:
+- README-ERSATZRADIO.md: fork overview, feature list, quickstart, api cheatsheet, limits
+- docs/UPSTREAM-SYNC.md: new-vs-modified file inventory; the four conflict-zone files
+  (HlsSessionWorker, GetPlayoutItemProcessByChannelNumberHandler, FFmpegLibraryProcessService,
+  GetPlayoutItemProcessByChannelNumber) with the NextState incomplete-realtime INVARIANT called out;
+  merge procedure + smoke tests + etag bump guidance.
+
+PENDING dakota validations: per-channel voice on an italian channel (it_IT via piper-mkii or voice
+override); duckPercent taste tuning (10-15 suggested for loud program material).
+
+NEXT SESSION (session 12) candidates:
+- live-test the three ui pages + books tiles
+- late-scheduled force-cut refinement; audio-only error process (anullsrc, x5)
+- icecast/direct MP3 endpoint (PARKED per dakota: flexibility, not priority)
+- possible: announcer preview button (synthesize test phrase), interrupt upload from the ui page
