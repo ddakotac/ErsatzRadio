@@ -455,41 +455,64 @@ public class InterruptsController : ControllerBase
         object channels,
         CancellationToken cancellationToken)
     {
-        if (channels is System.Text.Json.JsonElement element)
+        // mvc uses newtonsoft (JToken); tolerate system.text.json and raw clr types too
+        Option<string> maybeKeyword = Option<string>.None;
+        List<string> list = null;
+
+        switch (channels)
         {
-            if (element.ValueKind == System.Text.Json.JsonValueKind.String &&
-                string.Equals(element.GetString(), "active", StringComparison.OrdinalIgnoreCase))
-            {
-                List<ChannelViewModel> allChannels = await _mediator.Send(new GetAllChannels(), cancellationToken);
-                var active = allChannels
-                    .Filter(ch => ch.SongVideoMode == ChannelSongVideoMode.AudioOnly)
-                    .Filter(ch => _ffmpegSegmenterService.IsActive(ch.Number))
-                    .Map(ch => ch.Number)
-                    .ToList();
-
-                if (active.Count == 0)
-                {
-                    return Left<IActionResult, List<string>>(
-                        UnprocessableEntity(new { error = "no audio-only channels have active sessions" }));
-                }
-
-                return active;
-            }
-
-            if (element.ValueKind == System.Text.Json.JsonValueKind.Array)
-            {
-                var list = element.EnumerateArray()
-                    .Filter(e => e.ValueKind == System.Text.Json.JsonValueKind.String)
-                    .Map(e => e.GetString())
-                    .Filter(s => !string.IsNullOrWhiteSpace(s))
+            case string s:
+                maybeKeyword = s;
+                break;
+            case Newtonsoft.Json.Linq.JValue { Type: Newtonsoft.Json.Linq.JTokenType.String } jValue:
+                maybeKeyword = (string)jValue;
+                break;
+            case Newtonsoft.Json.Linq.JArray jArray:
+                list = jArray
+                    .Where(t => t.Type == Newtonsoft.Json.Linq.JTokenType.String)
+                    .Select(t => (string)t)
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
                     .Distinct()
                     .ToList();
+                break;
+            case System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.String } element:
+                maybeKeyword = element.GetString();
+                break;
+            case System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.Array } element:
+                list = element.EnumerateArray()
+                    .Where(e => e.ValueKind == System.Text.Json.JsonValueKind.String)
+                    .Select(e => e.GetString())
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .Distinct()
+                    .ToList();
+                break;
+            case IEnumerable<string> strings:
+                list = strings.Filter(s => !string.IsNullOrWhiteSpace(s)).Distinct().ToList();
+                break;
+        }
 
-                if (list.Count > 0)
-                {
-                    return list;
-                }
+        foreach (string keyword in maybeKeyword.Filter(k =>
+                     string.Equals(k, "active", StringComparison.OrdinalIgnoreCase)))
+        {
+            List<ChannelViewModel> allChannels = await _mediator.Send(new GetAllChannels(), cancellationToken);
+            var active = allChannels
+                .Filter(ch => ch.SongVideoMode == ChannelSongVideoMode.AudioOnly)
+                .Filter(ch => _ffmpegSegmenterService.IsActive(ch.Number))
+                .Map(ch => ch.Number)
+                .ToList();
+
+            if (active.Count == 0)
+            {
+                return Left<IActionResult, List<string>>(
+                    UnprocessableEntity(new { error = "no audio-only channels have active sessions" }));
             }
+
+            return active;
+        }
+
+        if (list is { Count: > 0 })
+        {
+            return list;
         }
 
         return Left<IActionResult, List<string>>(
