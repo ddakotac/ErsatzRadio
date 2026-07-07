@@ -5,6 +5,7 @@ using ErsatzTV.Application.Channels;
 using ErsatzTV.Core;
 using ErsatzTV.Core.Domain;
 using ErsatzTV.Core.Interfaces.FFmpeg;
+using ErsatzTV.Core.Interfaces.Tts;
 using ErsatzTV.Core.Interfaces.Repositories;
 using ErsatzTV.Core.Interfaces.Streaming;
 using ErsatzTV.Core.Interrupts;
@@ -44,6 +45,7 @@ public class InterruptsController : ControllerBase
     private readonly IConfigElementRepository _configElementRepository;
     private readonly IChannelInterruptService _interruptQueue;
     private readonly IFFmpegSegmenterService _ffmpegSegmenterService;
+    private readonly ITtsSynthesisService _ttsSynthesisService;
     private readonly ILogger<InterruptsController> _logger;
 
     public InterruptsController(
@@ -51,12 +53,14 @@ public class InterruptsController : ControllerBase
         IConfigElementRepository configElementRepository,
         IChannelInterruptService interruptQueue,
         IFFmpegSegmenterService ffmpegSegmenterService,
+        ITtsSynthesisService ttsSynthesisService,
         ILogger<InterruptsController> logger)
     {
         _mediator = mediator;
         _configElementRepository = configElementRepository;
         _interruptQueue = interruptQueue;
         _ffmpegSegmenterService = ffmpegSegmenterService;
+        _ttsSynthesisService = ttsSynthesisService;
         _logger = logger;
     }
 
@@ -256,6 +260,319 @@ public class InterruptsController : ControllerBase
 
         return item;
     }
+
+    // synthesize text through the tts endpoint registry and enqueue it as an interrupt.
+    // style defaults to DUCK for tts (spoken over the schedule); pass style=replace to
+    // insert instead. body: { text, ttsEndpoint?, voice?, priority?, ttlSeconds?, title?,
+    // airAt?, style?, duckPercent? }
+    [HttpPost("api/channels/{channelNumber}/interrupts/tts")]
+    public async Task<IActionResult> EnqueueTts(
+        string channelNumber,
+        [FromBody] InterruptTtsRequest request,
+        CancellationToken cancellationToken)
+    {
+        List<object> results = await EnqueueTtsForChannels([channelNumber], request, cancellationToken);
+        return results.Count == 1 && results[0] is IActionResult single ? single : Ok(results[0]);
+    }
+
+    // broadcast tts to multiple channels. channels: ["1","2"] or "active" (all audio-only
+    // channels with a live session). one synthesis, one file copy per channel.
+    [HttpPost("api/interrupts/tts")]
+    public async Task<IActionResult> BroadcastTts(
+        [FromBody] InterruptTtsBroadcastRequest request,
+        CancellationToken cancellationToken)
+    {
+        Either<IActionResult, List<string>> maybeChannels =
+            await ResolveChannels(request?.Channels, cancellationToken);
+
+        foreach (IActionResult invalid in maybeChannels.LeftAsEnumerable())
+        {
+            return invalid;
+        }
+
+        foreach (List<string> channels in maybeChannels.RightAsEnumerable())
+        {
+            List<object> results = await EnqueueTtsForChannels(channels, request, cancellationToken);
+            return Ok(new { results });
+        }
+
+        return BadRequest();
+    }
+
+    // broadcast a path-based interrupt to multiple channels. deleteWhenDone is ignored
+    // (multiple queue items share the file).
+    [HttpPost("api/interrupts/path")]
+    public async Task<IActionResult> BroadcastPath(
+        [FromBody] InterruptPathBroadcastRequest request,
+        CancellationToken cancellationToken)
+    {
+        Either<IActionResult, List<string>> maybeChannels =
+            await ResolveChannels(request?.Channels, cancellationToken);
+
+        foreach (IActionResult invalid in maybeChannels.LeftAsEnumerable())
+        {
+            return invalid;
+        }
+
+        foreach (List<string> channels in maybeChannels.RightAsEnumerable())
+        {
+            var results = new List<object>();
+            foreach (string channelNumber in channels)
+            {
+                var singleRequest = new InterruptPathRequest(
+                    request.Path,
+                    request.Priority,
+                    request.TtlSeconds,
+                    request.Title,
+                    DeleteWhenDone: false,
+                    request.AirAt,
+                    request.Style,
+                    request.DuckPercent);
+
+                IActionResult result = await EnqueuePath(channelNumber, singleRequest, cancellationToken);
+                results.Add(ToBroadcastResult(channelNumber, result));
+            }
+
+            return Ok(new { results });
+        }
+
+        return BadRequest();
+    }
+
+    private async Task<List<object>> EnqueueTtsForChannels(
+        List<string> channelNumbers,
+        InterruptTtsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var results = new List<object>();
+
+        if (string.IsNullOrWhiteSpace(request?.Text))
+        {
+            results.Add(BadRequest(new { error = "text is required" }));
+            return results;
+        }
+
+        int priority = request.Priority ?? 1;
+        int ttlSeconds = request.TtlSeconds ?? DefaultTtlSeconds;
+
+        Either<IActionResult, Option<DateTimeOffset>> parsedAirAt = ParseAirAt(request.AirAt, ttlSeconds);
+        foreach (IActionResult invalid in parsedAirAt.LeftAsEnumerable())
+        {
+            results.Add(invalid);
+            return results;
+        }
+
+        // tts interrupts default to duck: spoken over the schedule
+        int duckPercent = request.DuckPercent ?? 30;
+        Either<IActionResult, InterruptStyle> parsedStyle = ParseStyle(request.Style ?? "duck", duckPercent);
+        foreach (IActionResult invalid in parsedStyle.LeftAsEnumerable())
+        {
+            results.Add(invalid);
+            return results;
+        }
+
+        Option<string> maybeAudioPath = await _ttsSynthesisService.SynthesizeToFile(
+            request.Text,
+            request.TtsEndpoint,
+            request.Voice,
+            cancellationToken);
+
+        if (maybeAudioPath.IsNone)
+        {
+            results.Add(StatusCode(
+                502,
+                new { error = "tts synthesis failed; check the tts endpoint configuration and logs" }));
+
+            return results;
+        }
+
+        foreach (string audioPath in maybeAudioPath)
+        foreach (Option<DateTimeOffset> airAtValue in parsedAirAt.RightAsEnumerable())
+        foreach (InterruptStyle styleValue in parsedStyle.RightAsEnumerable())
+        {
+            Either<IActionResult, TimeSpan> probeResult = await ProbeDuration(audioPath, cancellationToken);
+            foreach (IActionResult probeError in probeResult.LeftAsEnumerable())
+            {
+                TryDeleteFile(audioPath);
+                results.Add(probeError);
+                return results;
+            }
+
+            foreach (TimeSpan duration in probeResult.RightAsEnumerable())
+            {
+                var first = true;
+                foreach (string channelNumber in channelNumbers)
+                {
+                    Option<IActionResult> maybeInvalid =
+                        await ValidateChannel(channelNumber, priority, ttlSeconds, cancellationToken);
+
+                    bool valid = maybeInvalid.IsNone;
+                    foreach (IActionResult invalid in maybeInvalid)
+                    {
+                        results.Add(ToBroadcastResult(channelNumber, invalid));
+                    }
+
+                    if (!valid)
+                    {
+                        continue;
+                    }
+
+                    // each queue item owns its own file copy - DeleteFileWhenDone would
+                    // otherwise race between channels
+                    string channelPath = first
+                        ? audioPath
+                        : CopyForChannel(audioPath);
+                    first = false;
+
+                    InterruptQueueItem item = Enqueue(
+                        Guid.NewGuid(),
+                        channelNumber,
+                        channelPath,
+                        request.Title ?? $"TTS: {Truncate(request.Text, 60)}",
+                        priority,
+                        ttlSeconds,
+                        duration,
+                        deleteFileWhenDone: true,
+                        airAtValue.ToNullable(),
+                        styleValue,
+                        duckPercent);
+
+                    results.Add(ToBroadcastResult(channelNumber, Ok(ToResponse(item))));
+                }
+
+                // nothing enqueued (all channels invalid): remove the orphan synthesis file
+                if (first)
+                {
+                    TryDeleteFile(audioPath);
+                }
+            }
+        }
+
+        return results;
+    }
+
+    private async Task<Either<IActionResult, List<string>>> ResolveChannels(
+        object channels,
+        CancellationToken cancellationToken)
+    {
+        if (channels is System.Text.Json.JsonElement element)
+        {
+            if (element.ValueKind == System.Text.Json.JsonValueKind.String &&
+                string.Equals(element.GetString(), "active", StringComparison.OrdinalIgnoreCase))
+            {
+                List<ChannelViewModel> allChannels = await _mediator.Send(new GetAllChannels(), cancellationToken);
+                var active = allChannels
+                    .Filter(ch => ch.SongVideoMode == ChannelSongVideoMode.AudioOnly)
+                    .Filter(ch => _ffmpegSegmenterService.IsActive(ch.Number))
+                    .Map(ch => ch.Number)
+                    .ToList();
+
+                if (active.Count == 0)
+                {
+                    return Left<IActionResult, List<string>>(
+                        UnprocessableEntity(new { error = "no audio-only channels have active sessions" }));
+                }
+
+                return active;
+            }
+
+            if (element.ValueKind == System.Text.Json.JsonValueKind.Array)
+            {
+                var list = element.EnumerateArray()
+                    .Filter(e => e.ValueKind == System.Text.Json.JsonValueKind.String)
+                    .Map(e => e.GetString())
+                    .Filter(s => !string.IsNullOrWhiteSpace(s))
+                    .Distinct()
+                    .ToList();
+
+                if (list.Count > 0)
+                {
+                    return list;
+                }
+            }
+        }
+
+        return Left<IActionResult, List<string>>(
+            BadRequest(new { error = "channels must be a non-empty array of channel numbers or the string \"active\"" }));
+    }
+
+    private static string CopyForChannel(string sourcePath)
+    {
+        string copyPath = Path.Combine(
+            FileSystemLayout.InterruptsFolder,
+            $"tts-{Guid.NewGuid()}{Path.GetExtension(sourcePath)}");
+
+        System.IO.File.Copy(sourcePath, copyPath);
+        return copyPath;
+    }
+
+    private void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (System.IO.File.Exists(path))
+            {
+                System.IO.File.Delete(path);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to delete tts temp file {Path}", path);
+        }
+    }
+
+    private static object ToBroadcastResult(string channelNumber, IActionResult result) =>
+        result switch
+        {
+            OkObjectResult ok => new { channelNumber, ok = true, item = ok.Value },
+            ObjectResult obj => new { channelNumber, ok = false, error = obj.Value },
+            _ => new { channelNumber, ok = false, error = "unknown error" }
+        };
+
+    private static string Truncate(string value, int maxLength) =>
+        value.Length <= maxLength ? value : value[..maxLength] + "...";
+
+    public record InterruptTtsRequest(
+        string Text,
+        string TtsEndpoint,
+        string Voice,
+        int? Priority,
+        int? TtlSeconds,
+        string Title,
+        string AirAt,
+        string Style,
+        int? DuckPercent);
+
+    public record InterruptTtsBroadcastRequest(
+        string Text,
+        string TtsEndpoint,
+        string Voice,
+        int? Priority,
+        int? TtlSeconds,
+        string Title,
+        string AirAt,
+        string Style,
+        int? DuckPercent,
+        object Channels) : InterruptTtsRequest(
+        Text,
+        TtsEndpoint,
+        Voice,
+        Priority,
+        TtlSeconds,
+        Title,
+        AirAt,
+        Style,
+        DuckPercent);
+
+    public record InterruptPathBroadcastRequest(
+        string Path,
+        int? Priority,
+        int? TtlSeconds,
+        string Title,
+        string AirAt,
+        string Style,
+        int? DuckPercent,
+        object Channels);
 
     private async Task<Option<IActionResult>> ValidateChannel(
         string channelNumber,

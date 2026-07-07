@@ -118,6 +118,62 @@ never for filler, and each item is announced once per session. TTS failures skip
 announcement and never disturb the stream. The TTS endpoint contract is: HTTP POST,
 plain-text body, audio bytes response.
 
+## TTS interrupts (speak text directly)
+
+Skip the file entirely: POST text and ErsatzRadio synthesizes it through the TTS
+endpoint registry and enqueues the result. Style defaults to **duck** here
+(spoken over the schedule); pass `"style": "replace"` to insert instead.
+
+```bash
+curl -X POST http://ohs:8409/api/channels/70/interrupts/tts \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Dinner is ready", "priority": 1, "ttlSeconds": 300}'
+```
+
+Optional fields: `ttsEndpoint` (registry name; default first registered),
+`voice`, `title`, `airAt`, `style`, `duckPercent`, `priority`, `ttlSeconds`.
+
+## Broadcast (multiple channels at once)
+
+`POST /api/interrupts/tts` and `POST /api/interrupts/path` take a `channels`
+field: an array of channel numbers, or the string `"active"` for every
+audio-only channel with a live session. TTS is synthesized once (one file copy
+per channel); path broadcasts share the file (`deleteWhenDone` is ignored).
+The response is a per-channel `results` array with `ok` + item or error.
+
+```bash
+# whole-house announcement over everything currently playing
+curl -X POST http://ohs:8409/api/interrupts/tts \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Dinner is ready", "channels": "active", "priority": 0}'
+
+# doorbell chime on two specific channels
+curl -X POST http://ohs:8409/api/interrupts/path \
+  -H "Content-Type: application/json" \
+  -d '{"path": "/media/shared/chimes/doorbell.wav", "channels": ["1", "2"],
+       "priority": 0, "style": "duck", "duckPercent": 20, "ttlSeconds": 120}'
+```
+
+### Home Assistant rest_command
+
+```yaml
+rest_command:
+  eradio_say:
+    url: "http://ohs:8409/api/interrupts/tts"
+    method: POST
+    content_type: "application/json"
+    payload: >-
+      {"text": "{{ text }}",
+       "channels": {{ channels | default('"active"') | tojson if channels is not string else channels }},
+       "priority": {{ priority | default(0) }},
+       "style": "{{ style | default('duck') }}",
+       "duckPercent": {{ duck_percent | default(25) }},
+       "ttlSeconds": {{ ttl | default(120) }}}
+```
+
+Then `action: rest_command.eradio_say` with `data: {text: "Someone is at the front door"}`
+is a whole-house spoken announcement, ducked over whatever each room is playing.
+
 ## TTL
 
 Every item carries a TTL (default 300 s). An item that has not **started** playing by

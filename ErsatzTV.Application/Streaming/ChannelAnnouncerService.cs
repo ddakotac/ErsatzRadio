@@ -7,7 +7,7 @@ using ErsatzTV.Core.Domain.Filler;
 using ErsatzTV.Core.Interfaces.Repositories;
 using ErsatzTV.Core.Interfaces.Streaming;
 using ErsatzTV.Core.Interrupts;
-using ErsatzTV.Core.Tts;
+using ErsatzTV.Core.Interfaces.Tts;
 using ErsatzTV.Infrastructure.Data;
 using ErsatzTV.Infrastructure.Extensions;
 using Microsoft.EntityFrameworkCore;
@@ -23,26 +23,25 @@ public class ChannelAnnouncerService : IChannelAnnouncerService
     private readonly IDbContextFactory<TvContext> _dbContextFactory;
     private readonly IConfigElementRepository _configElementRepository;
     private readonly IChannelInterruptService _interruptService;
-    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ITtsSynthesisService _ttsSynthesisService;
     private readonly ILogger<ChannelAnnouncerService> _logger;
 
     // scoped per hls session; state lives for the session
     private (DateTimeOffset FetchedAt, bool Enabled, string Template, InterruptStyle Style, double BedVolume,
         string TtsEndpoint, string Voice)? _cachedConfig;
     private int _lastAnnouncedMediaItemId = -1;
-    private bool _warnedNoTtsUrl;
 
     public ChannelAnnouncerService(
         IDbContextFactory<TvContext> dbContextFactory,
         IConfigElementRepository configElementRepository,
         IChannelInterruptService interruptService,
-        IHttpClientFactory httpClientFactory,
+        ITtsSynthesisService ttsSynthesisService,
         ILogger<ChannelAnnouncerService> logger)
     {
         _dbContextFactory = dbContextFactory;
         _configElementRepository = configElementRepository;
         _interruptService = interruptService;
-        _httpClientFactory = httpClientFactory;
+        _ttsSynthesisService = ttsSynthesisService;
         _logger = logger;
     }
 
@@ -249,146 +248,12 @@ public class ChannelAnnouncerService : IChannelAnnouncerService
         return string.IsNullOrWhiteSpace(title) ? string.Empty : text.Trim();
     }
 
-    private async Task<Option<string>> GenerateTts(
+    private Task<Option<string>> GenerateTts(
         string text,
         string ttsEndpointName,
         string channelVoice,
-        CancellationToken cancellationToken)
-    {
-        Option<(string Url, string Voice)> maybeTarget =
-            await ResolveTtsTarget(ttsEndpointName, channelVoice, cancellationToken);
-
-        foreach ((string url, string voice) in maybeTarget)
-        {
-            try
-            {
-                byte[] audio;
-
-                if (url.StartsWith("wyoming://", StringComparison.OrdinalIgnoreCase))
-                {
-                    var uri = new Uri(url.Replace("wyoming://", "tcp://", StringComparison.OrdinalIgnoreCase));
-                    int port = uri.IsDefaultPort ? 10200 : uri.Port;
-
-                    audio = await WyomingTtsClient.Synthesize(
-                        uri.Host,
-                        port,
-                        text,
-                        Optional(voice).Filter(v => !string.IsNullOrWhiteSpace(v)),
-                        TimeSpan.FromSeconds(30),
-                        cancellationToken);
-                }
-                else
-                {
-                    HttpClient client = _httpClientFactory.CreateClient();
-                    client.Timeout = TimeSpan.FromSeconds(30);
-
-                    using var content = new StringContent(text);
-                    using HttpResponseMessage response = await client.PostAsync(url, content, cancellationToken);
-
-                    if (!response.IsSuccessStatusCode)
-                    {
-                        _logger.LogWarning(
-                            "Announcer TTS endpoint returned {StatusCode}; skipping announcement",
-                            (int)response.StatusCode);
-
-                        return Option<string>.None;
-                    }
-
-                    audio = await response.Content.ReadAsByteArrayAsync(cancellationToken);
-                }
-
-                if (audio.Length == 0)
-                {
-                    _logger.LogWarning("Announcer TTS endpoint returned no audio; skipping announcement");
-                    return Option<string>.None;
-                }
-
-                string path = Path.Combine(FileSystemLayout.InterruptsFolder, $"announcer-{Guid.NewGuid()}.wav");
-                await File.WriteAllBytesAsync(path, audio, cancellationToken);
-                return path;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Announcer TTS request failed; skipping announcement");
-                return Option<string>.None;
-            }
-        }
-
-        if (!_warnedNoTtsUrl)
-        {
-            _warnedNoTtsUrl = true;
-            _logger.LogWarning(
-                "Announcer is enabled but no TTS endpoint is configured or the configured endpoint name was not found");
-        }
-
-        return Option<string>.None;
-    }
-
-    private async Task<Option<(string Url, string Voice)>> ResolveTtsTarget(
-        string ttsEndpointName,
-        string channelVoice,
-        CancellationToken cancellationToken)
-    {
-        List<TtsEndpoint> endpoints = await LoadEndpoints(cancellationToken);
-
-        // named endpoint from channel config
-        if (!string.IsNullOrWhiteSpace(ttsEndpointName))
-        {
-            foreach (TtsEndpoint endpoint in Optional(
-                         endpoints.Find(e => string.Equals(e.Name, ttsEndpointName, StringComparison.OrdinalIgnoreCase))))
-            {
-                return (endpoint.Url, FirstNonEmpty(channelVoice, endpoint.Voice));
-            }
-
-            _logger.LogWarning(
-                "Announcer TTS endpoint {Name} was not found in the endpoints registry",
-                ttsEndpointName);
-
-            return Option<(string, string)>.None;
-        }
-
-        // first registered endpoint
-        foreach (TtsEndpoint endpoint in endpoints.HeadOrNone())
-        {
-            return (endpoint.Url, FirstNonEmpty(channelVoice, endpoint.Voice));
-        }
-
-        // legacy single url
-        Option<string> maybeLegacyUrl = await _configElementRepository.GetValue<string>(
-            ConfigElementKey.AnnouncerTtsUrl,
-            cancellationToken);
-
-        foreach (string legacyUrl in maybeLegacyUrl.Filter(u => !string.IsNullOrWhiteSpace(u)))
-        {
-            return (legacyUrl, channelVoice);
-        }
-
-        return Option<(string, string)>.None;
-    }
-
-    private async Task<List<TtsEndpoint>> LoadEndpoints(CancellationToken cancellationToken)
-    {
-        Option<string> maybeJson = await _configElementRepository.GetValue<string>(
-            ConfigElementKey.AnnouncerTtsEndpoints,
-            cancellationToken);
-
-        foreach (string json in maybeJson.Filter(j => !string.IsNullOrWhiteSpace(j)))
-        {
-            try
-            {
-                return System.Text.Json.JsonSerializer.Deserialize<List<TtsEndpoint>>(json) ?? [];
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to parse announcer tts endpoints; ignoring");
-            }
-        }
-
-        return [];
-    }
-
-    private static string FirstNonEmpty(params string[] values) =>
-        values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v)) ?? string.Empty;
+        CancellationToken cancellationToken) =>
+        _ttsSynthesisService.SynthesizeToFile(text, ttsEndpointName, channelVoice, cancellationToken);
 
     private async Task<Option<TimeSpan>> ProbeDuration(string path, CancellationToken cancellationToken)
     {

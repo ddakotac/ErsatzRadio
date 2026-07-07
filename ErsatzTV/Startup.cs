@@ -11,6 +11,7 @@ using Dapper;
 using ErsatzTV.Application;
 using ErsatzTV.Application.Channels;
 using ErsatzTV.Application.Streaming;
+using ErsatzTV.Core.Interfaces.Tts;
 using ErsatzTV.Core;
 using ErsatzTV.Core.Emby;
 using ErsatzTV.Core.Errors;
@@ -740,6 +741,7 @@ public class Startup
         services.AddSingleton<IFFmpegSegmenterService, FFmpegSegmenterService>();
         services.AddSingleton<IChannelInterruptService, ChannelInterruptService>();
         services.AddScoped<IChannelAnnouncerService, ChannelAnnouncerService>();
+        services.AddScoped<ITtsSynthesisService, TtsSynthesisService>();
         services.AddSingleton<ITempFilePool, TempFilePool>();
         services.AddSingleton<IHlsPlaylistFilter, HlsPlaylistFilter>();
         services.AddSingleton<RecyclableMemoryStreamManager>();
