@@ -375,3 +375,36 @@ NEXT SESSION (session 12) candidates:
 - late-scheduled force-cut refinement; audio-only error process (anullsrc, x5)
 - icecast/direct MP3 endpoint (PARKED per dakota: flexibility, not priority)
 - possible: announcer preview button (synthesize test phrase), interrupt upload from the ui page
+
+
+### Session 12 (2026-07-07): tts interrupts + broadcast (branch feature/tts-interrupts-broadcast)
+COMPILE-VERIFIED (app + scanner, 0 errors). Session 11 ui pages confirmed working by dakota first.
+Driven by dakota's HA question: "how do I push from HA, and can I hit all active channels at once?"
+
+TtsSynthesisService (ITtsSynthesisService, Core/Interfaces/Tts):
+- extracted resolve-endpoint + wyoming/http synthesis + write-wav from ChannelAnnouncerService
+  (announcer now delegates; behavior identical). registered scoped; controller injects it too.
+
+POST /api/channels/{n}/interrupts/tts:
+- { text, ttsEndpoint?, voice?, priority?, ttlSeconds?, title?, airAt?, style?, duckPercent? }
+- synthesizes via the registry, probes, enqueues with DeleteFileWhenDone
+- STYLE DEFAULTS TO DUCK for tts (spoken over the schedule) - differs from file endpoints (replace)
+
+Broadcast:
+- POST /api/interrupts/tts + POST /api/interrupts/path with channels: ["1","2"] | "active"
+  ("active" = audio-only channels with live sessions via IFFmpegSegmenterService)
+- tts synthesized ONCE; one file COPY per channel (DeleteFileWhenDone per-item would race on a
+  shared file); path broadcasts share the file and ignore deleteWhenDone
+- per-channel results array {channelNumber, ok, item|error}; invalid channels don't fail the batch
+- channels field bound as JsonElement (string "active" vs array polymorphism)
+
+docs/INTERRUPTS.md: tts + broadcast sections incl. HA rest_command for whole-house announcements
+(rest_command.eradio_say -> ducked spoken announcement on every listening channel).
+
+GOTCHA: controller ProbeDuration returns Either<IActionResult, TimeSpan> (not BaseError).
+
+NEXT SESSION (session 13) candidates:
+- LIVE TEST: single-channel tts interrupt, broadcast to "active", HA rest_command end-to-end
+- late-scheduled force-cut; anullsrc audio-only error process (x6)
+- icecast endpoint (parked)
+- possible: announcer preview/test button on the settings page (now trivial via the tts endpoint)
