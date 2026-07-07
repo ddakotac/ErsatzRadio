@@ -719,6 +719,22 @@ public class AudiobookshelfTelevisionRepository : IAudiobookshelfTelevisionRepos
         metadata.DateUpdated = DateTime.UtcNow;
         metadata.ReleaseDate = incomingMetadata.ReleaseDate;
 
+        // tags (collection/series membership)
+        foreach (Tag tag in metadata.Tags
+                     .Filter(t => incomingMetadata.Tags.All(t2 => t2.Name != t.Name))
+                     .Filter(t => t.ExternalCollectionId is null)
+                     .ToList())
+        {
+            metadata.Tags.Remove(tag);
+        }
+
+        foreach (Tag tag in incomingMetadata.Tags
+                     .Filter(t => metadata.Tags.All(t2 => t2.Name != t.Name))
+                     .ToList())
+        {
+            metadata.Tags.Add(tag);
+        }
+
         // poster
         Artwork incomingPoster =
             incomingMetadata.Artwork.FirstOrDefault(a => a.ArtworkKind == ArtworkKind.Poster);

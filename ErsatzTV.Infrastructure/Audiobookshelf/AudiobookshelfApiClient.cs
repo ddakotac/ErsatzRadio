@@ -204,13 +204,16 @@ public class AudiobookshelfApiClient : IAudiobookshelfApiClient
                 .ThenBy(b => b.Media?.Metadata?.Title ?? string.Empty, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
+            Dictionary<string, List<string>> bookTags =
+                await GetBookTags(connectionParameters, library.ItemId, cancellationToken);
+
             for (var i = 0; i < ordered.Count; i++)
             {
                 AbsLibraryItem book = ordered[i];
                 var season = new AudiobookshelfSeason
                 {
                     ItemId = book.Id,
-                    Etag = ComputeEtag(book.Id, book.UpdatedAt, i + 1),
+                    Etag = ComputeEtag(book.Id, book.UpdatedAt, i + 1, TagFingerprint(bookTags, book.Id)),
                     SeasonNumber = i + 1,
                     SeasonMetadata =
                     [
@@ -220,7 +223,7 @@ public class AudiobookshelfApiClient : IAudiobookshelfApiClient
                             Title = book.Media?.Metadata?.Title ?? $"Season {i + 1}",
                             DateAdded = FromUnixMs(book.AddedAt),
                             DateUpdated = FromUnixMs(book.UpdatedAt),
-                            Tags = [],
+                            Tags = TagsFor(bookTags, book.Id),
                             Guids = [],
                             Artwork =
                             [
@@ -294,12 +297,23 @@ public class AudiobookshelfApiClient : IAudiobookshelfApiClient
             List<AbsChapter> chapters = Optional(book?.Media?.Chapters).Flatten().ToList();
             bool useChapterTitles = chapters.Count == tracks.Count && chapters.Count > 0;
 
+            Dictionary<string, List<string>> bookTags =
+                await GetBookTags(connectionParameters, library.ItemId, cancellationToken);
+            List<Tag> episodeTags = TagsFor(bookTags, book?.Id);
+            string episodeTagFingerprint = TagFingerprint(bookTags, book?.Id);
+
             var number = 0;
             foreach (AbsAudioFile track in tracks)
             {
                 number++;
                 string chapterTitle = useChapterTitles ? chapters[number - 1].Title : null;
-                foreach (AudiobookshelfEpisode projected in ProjectTrackToEpisode(book, track, number, chapterTitle))
+                foreach (AudiobookshelfEpisode projected in ProjectTrackToEpisode(
+                             book,
+                             track,
+                             number,
+                             chapterTitle,
+                             episodeTags,
+                             episodeTagFingerprint))
                 {
                     yield return Tuple(projected, Math.Max(tracks.Count, 1));
                 }
@@ -408,7 +422,9 @@ public class AudiobookshelfApiClient : IAudiobookshelfApiClient
         AbsLibraryItem book,
         AbsAudioFile track,
         int episodeNumber,
-        string chapterTitle = null)
+        string chapterTitle = null,
+        List<Tag> tags = null,
+        string tagFingerprint = null)
     {
         try
         {
@@ -430,14 +446,15 @@ public class AudiobookshelfApiClient : IAudiobookshelfApiClient
 
             return ProjectEpisode(
                 itemId: $"{book.Id}:t{trackIndex}",
-                etag: ComputeEtag(book.Id, book.UpdatedAt, trackIndex, track.Metadata?.Path),
+                etag: ComputeEtag(book.Id, book.UpdatedAt, trackIndex, track.Metadata?.Path, tagFingerprint ?? string.Empty),
                 title: title,
                 episodeNumber: episodeNumber,
                 path: track.Metadata.Path,
                 duration: track.Duration,
                 codec: track.Codec,
                 releaseDate: null,
-                plot: null);
+                plot: null,
+                tags: tags ?? []);
         }
         catch (Exception ex)
         {
@@ -485,7 +502,8 @@ public class AudiobookshelfApiClient : IAudiobookshelfApiClient
         double? duration,
         string codec,
         DateTime? releaseDate,
-        string plot)
+        string plot,
+        List<Tag> tags = null)
     {
         DateTime now = DateTime.UtcNow;
 
@@ -528,7 +546,7 @@ public class AudiobookshelfApiClient : IAudiobookshelfApiClient
             DateAdded = now,
             DateUpdated = now,
             Genres = [],
-            Tags = [],
+            Tags = tags ?? [],
             Studios = [],
             Actors = [],
             Directors = [],
@@ -587,6 +605,104 @@ public class AudiobookshelfApiClient : IAudiobookshelfApiClient
             page++;
         }
     }
+
+    private readonly Dictionary<string, (DateTimeOffset FetchedAt, Dictionary<string, List<string>> Tags)>
+        _bookTagCache = new();
+
+    /// <summary>
+    ///     Collection and series membership becomes book tags (tag:"name" in searches and
+    ///     smart collections). Cached per library for five minutes so season and episode
+    ///     scans within one pass share a single fetch.
+    /// </summary>
+    private async Task<Dictionary<string, List<string>>> GetBookTags(
+        AudiobookshelfConnectionParameters connectionParameters,
+        string libraryId,
+        CancellationToken cancellationToken)
+    {
+        string cacheKey = $"{connectionParameters.Address}|{libraryId}";
+
+        lock (_bookTagCache)
+        {
+            if (_bookTagCache.TryGetValue(cacheKey, out (DateTimeOffset FetchedAt, Dictionary<string, List<string>> Tags) cached) &&
+                DateTimeOffset.Now - cached.FetchedAt < TimeSpan.FromMinutes(5))
+            {
+                return cached.Tags;
+            }
+        }
+
+        var result = new Dictionary<string, List<string>>();
+
+        foreach (string endpoint in (string[]) ["collections", "series"])
+        {
+            try
+            {
+                var page = 0;
+                var seen = 0;
+                int total;
+
+                do
+                {
+                    AbsBookGroupsResponse response = await GetJson<AbsBookGroupsResponse>(
+                        connectionParameters,
+                        $"/api/libraries/{libraryId}/{endpoint}?limit=200&page={page}",
+                        cancellationToken);
+
+                    List<AbsBookGroup> results = response?.Results ?? [];
+                    total = response?.Total ?? results.Count;
+                    seen += results.Count;
+                    page++;
+
+                    foreach (AbsBookGroup group in results.Filter(g => !string.IsNullOrWhiteSpace(g.Name)))
+                    {
+                        foreach (AbsBookGroupBook book in Optional(group.Books).Flatten()
+                                     .Filter(b => !string.IsNullOrWhiteSpace(b.Id)))
+                        {
+                            if (!result.TryGetValue(book.Id, out List<string> names))
+                            {
+                                names = [];
+                                result[book.Id] = names;
+                            }
+
+                            if (!names.Contains(group.Name, StringComparer.OrdinalIgnoreCase))
+                            {
+                                names.Add(group.Name);
+                            }
+                        }
+                    }
+
+                    if (results.Count == 0)
+                    {
+                        break;
+                    }
+                } while (seen < total);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Failed to load audiobookshelf {Endpoint} for library {LibraryId}; books will not be tagged from them",
+                    endpoint,
+                    libraryId);
+            }
+        }
+
+        lock (_bookTagCache)
+        {
+            _bookTagCache[cacheKey] = (DateTimeOffset.Now, result);
+        }
+
+        return result;
+    }
+
+    private static string TagFingerprint(Dictionary<string, List<string>> bookTags, string bookId) =>
+        bookTags.TryGetValue(bookId ?? string.Empty, out List<string> names)
+            ? string.Join(',', names.OrderBy(n => n, StringComparer.OrdinalIgnoreCase))
+            : string.Empty;
+
+    private static List<Tag> TagsFor(Dictionary<string, List<string>> bookTags, string bookId) =>
+        bookTags.TryGetValue(bookId ?? string.Empty, out List<string> names)
+            ? names.Map(n => new Tag { Name = n }).ToList()
+            : [];
 
     private async Task<T> GetJson<T>(
         AudiobookshelfConnectionParameters connectionParameters,

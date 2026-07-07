@@ -79,18 +79,35 @@ rendered through a template, synthesized via a TTS endpoint, and ducked over the
 item's opening (style configurable).
 
 ```bash
-# global tts endpoint: POST plain text -> audio bytes (e.g. a piper http server)
-curl -X PUT http://ohs:8409/api/announcer/tts \
-  -H "Content-Type: application/json" -d '{"url": "http://sophia:5000/api/tts"}'
+# register named tts endpoints (once). wyoming://host:port speaks natively to
+# wyoming-piper - no bridge or second piper needed; voice picks the piper voice.
+# http(s):// endpoints use POST plain text -> audio bytes.
+curl -X PUT http://ohs:8409/api/announcer/tts/endpoints \
+  -H "Content-Type: application/json" \
+  -d '{"name": "piper-main", "url": "wyoming://opal.lan:10200"}'
+curl -X PUT http://ohs:8409/api/announcer/tts/endpoints \
+  -H "Content-Type: application/json" \
+  -d '{"name": "piper-mkii", "url": "wyoming://opal.lan:10201"}'
 
-# enable per channel
+curl http://ohs:8409/api/announcer/tts/endpoints           # list
+curl -X DELETE http://ohs:8409/api/announcer/tts/endpoints/piper-mkii
+
+# enable per channel; ttsEndpoint selects by name (default: first registered,
+# falling back to the legacy /api/announcer/tts single url). voice overrides the
+# endpoint's default voice - e.g. an italian voice for an italian channel.
 curl -X PUT http://ohs:8409/api/channels/70/announcer \
   -H "Content-Type: application/json" \
-  -d '{"enabled": true, "template": "Now playing: {title} by {artist}", "style": "duck", "duckPercent": 25}'
+  -d '{"enabled": true, "template": "Now playing: {title} by {artist}",
+       "style": "duck", "duckPercent": 25,
+       "ttsEndpoint": "piper-main", "voice": "en_US-lessac-medium"}'
 
 # check config
 curl http://ohs:8409/api/channels/70/announcer
 ```
+
+Announcer overlays are loudness-normalized (`loudnorm` on the overlay input) so
+quiet TTS output stays audible over loud program material - this applies to all
+duck-style interrupts, not just the announcer.
 
 Template variables: `{title}`, `{artist}`, `{album}` (songs); `{title}`, `{show}`/
 `{author}`, `{season}`/`{book}` (episodes/chapters). Audiobook example:
@@ -152,7 +169,9 @@ curl -X DELETE http://ohs:8409/api/channels/70/interrupts/{id}  # remove one
 curl -X DELETE http://ohs:8409/api/channels/70/interrupts       # clear all
 ```
 
-Responses include `id`, `durationSeconds`, and `expiresAt`.
+Responses include `id`, `durationSeconds`, `expiresAt`, and `sessionActive` -- when
+`sessionActive` is `false`, nobody is listening to that channel and the item will
+expire unless a session starts before its TTL (a `warning` field says so).
 
 ## Home Assistant example
 

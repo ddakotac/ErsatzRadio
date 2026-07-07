@@ -109,6 +109,9 @@ public class NavidromeApiClient : INavidromeApiClient
         client.BaseAddress = new Uri(connectionParameters.Address);
         client.DefaultRequestHeaders.Add("x-nd-authorization", $"Bearer {token}");
 
+        // playlist membership becomes song tags (tag:"<playlist name>" in searches/collections)
+        Dictionary<string, List<string>> playlistTags = await GetPlaylistTags(client, cancellationToken);
+
         const int PageSize = 500;
         var offset = 0;
         var totalSongCount = -1;
@@ -149,7 +152,7 @@ public class NavidromeApiClient : INavidromeApiClient
                     continue;
                 }
 
-                foreach (NavidromeSong navidromeSong in ProjectToSong(song))
+                foreach (NavidromeSong navidromeSong in ProjectToSong(song, playlistTags))
                 {
                     yield return Tuple(navidromeSong, Math.Max(totalSongCount, 1));
                 }
@@ -189,7 +192,9 @@ public class NavidromeApiClient : INavidromeApiClient
         return login?.Token ?? throw new InvalidOperationException("Navidrome native login failed");
     }
 
-    private Option<NavidromeSong> ProjectToSong(NavidromeNativeSong item)
+    private Option<NavidromeSong> ProjectToSong(
+        NavidromeNativeSong item,
+        Dictionary<string, List<string>> playlistTags)
     {
         try
         {
@@ -261,7 +266,9 @@ public class NavidromeApiClient : INavidromeApiClient
                 DateAdded = now,
                 DateUpdated = now,
                 Genres = genres,
-                Tags = [],
+                Tags = playlistTags.TryGetValue(item.Id ?? string.Empty, out List<string> playlists)
+                    ? playlists.Map(p => new Tag { Name = p }).ToList()
+                    : [],
                 Studios = [],
                 Actors = [],
                 Artwork =
@@ -280,7 +287,7 @@ public class NavidromeApiClient : INavidromeApiClient
             var song = new NavidromeSong
             {
                 ItemId = item.Id,
-                Etag = ComputeEtag(item),
+                Etag = ComputeEtag(item, playlistTags),
                 MediaVersions = [version],
                 SongMetadata = [metadata],
                 TraktListItems = []
@@ -299,11 +306,16 @@ public class NavidromeApiClient : INavidromeApiClient
     // (v2: thumbnail artwork added)
     private const string EtagVersion = "2";
 
-    private static string ComputeEtag(NavidromeNativeSong item)
+    private static string ComputeEtag(NavidromeNativeSong item, Dictionary<string, List<string>> playlistTags)
     {
+        string tagFingerprint = playlistTags.TryGetValue(item.Id ?? string.Empty, out List<string> playlists)
+            ? string.Join(',', playlists.OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
+            : string.Empty;
+
         string fingerprint = string.Join(
             '|',
             EtagVersion,
+            tagFingerprint,
             item.Id,
             item.Title,
             item.Album,
@@ -319,6 +331,93 @@ public class NavidromeApiClient : INavidromeApiClient
 
         byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(fingerprint));
         return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private async Task<Dictionary<string, List<string>>> GetPlaylistTags(
+        HttpClient client,
+        CancellationToken cancellationToken)
+    {
+        var result = new Dictionary<string, List<string>>();
+
+        try
+        {
+            using HttpResponseMessage playlistsResponse = await client.GetAsync(
+                "/api/playlist?_start=0&_end=500",
+                cancellationToken);
+
+            if (!playlistsResponse.IsSuccessStatusCode)
+            {
+                _logger.LogWarning(
+                    "Failed to fetch navidrome playlists ({StatusCode}); songs will not be tagged with playlist names",
+                    (int)playlistsResponse.StatusCode);
+
+                return result;
+            }
+
+            await using Stream playlistsStream = await playlistsResponse.Content.ReadAsStreamAsync(cancellationToken);
+            List<NavidromeNativePlaylist> playlists = await JsonSerializer.DeserializeAsync<List<NavidromeNativePlaylist>>(
+                playlistsStream,
+                JsonOptions,
+                cancellationToken) ?? [];
+
+            foreach (NavidromeNativePlaylist playlist in playlists.Filter(p => !string.IsNullOrWhiteSpace(p.Name)))
+            {
+                const int TrackPageSize = 1000;
+                var trackOffset = 0;
+
+                while (true)
+                {
+                    using HttpResponseMessage tracksResponse = await client.GetAsync(
+                        $"/api/playlist/{Uri.EscapeDataString(playlist.Id)}/tracks?_start={trackOffset}&_end={trackOffset + TrackPageSize}",
+                        cancellationToken);
+
+                    if (!tracksResponse.IsSuccessStatusCode)
+                    {
+                        break;
+                    }
+
+                    await using Stream tracksStream = await tracksResponse.Content.ReadAsStreamAsync(cancellationToken);
+                    List<NavidromeNativePlaylistTrack> tracks =
+                        await JsonSerializer.DeserializeAsync<List<NavidromeNativePlaylistTrack>>(
+                            tracksStream,
+                            JsonOptions,
+                            cancellationToken) ?? [];
+
+                    foreach (NavidromeNativePlaylistTrack track in tracks.Filter(t =>
+                                 !string.IsNullOrWhiteSpace(t.MediaFileId)))
+                    {
+                        if (!result.TryGetValue(track.MediaFileId, out List<string> names))
+                        {
+                            names = [];
+                            result[track.MediaFileId] = names;
+                        }
+
+                        if (!names.Contains(playlist.Name, StringComparer.OrdinalIgnoreCase))
+                        {
+                            names.Add(playlist.Name);
+                        }
+                    }
+
+                    if (tracks.Count < TrackPageSize)
+                    {
+                        break;
+                    }
+
+                    trackOffset += TrackPageSize;
+                }
+            }
+
+            _logger.LogDebug(
+                "Loaded {PlaylistCount} navidrome playlists covering {SongCount} songs for tagging",
+                playlists.Count,
+                result.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load navidrome playlists; songs will not be tagged with playlist names");
+        }
+
+        return result;
     }
 
     private async Task<SubsonicResponse> GetSubsonicResponse(

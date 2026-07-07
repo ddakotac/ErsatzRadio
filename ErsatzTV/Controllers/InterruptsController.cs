@@ -4,6 +4,7 @@ using CliWrap.Buffered;
 using ErsatzTV.Application.Channels;
 using ErsatzTV.Core;
 using ErsatzTV.Core.Domain;
+using ErsatzTV.Core.Interfaces.FFmpeg;
 using ErsatzTV.Core.Interfaces.Repositories;
 using ErsatzTV.Core.Interfaces.Streaming;
 using ErsatzTV.Core.Interrupts;
@@ -42,17 +43,20 @@ public class InterruptsController : ControllerBase
     private readonly IMediator _mediator;
     private readonly IConfigElementRepository _configElementRepository;
     private readonly IChannelInterruptService _interruptQueue;
+    private readonly IFFmpegSegmenterService _ffmpegSegmenterService;
     private readonly ILogger<InterruptsController> _logger;
 
     public InterruptsController(
         IMediator mediator,
         IConfigElementRepository configElementRepository,
         IChannelInterruptService interruptQueue,
+        IFFmpegSegmenterService ffmpegSegmenterService,
         ILogger<InterruptsController> logger)
     {
         _mediator = mediator;
         _configElementRepository = configElementRepository;
         _interruptQueue = interruptQueue;
+        _ffmpegSegmenterService = ffmpegSegmenterService;
         _logger = logger;
     }
 
@@ -383,8 +387,11 @@ public class InterruptsController : ControllerBase
             new BadRequestObjectResult(new { error = "style must be 'replace' or 'duck'" }));
     }
 
-    private static object ToResponse(InterruptQueueItem item) =>
-        new
+    private object ToResponse(InterruptQueueItem item)
+    {
+        bool sessionActive = _ffmpegSegmenterService.IsActive(item.ChannelNumber);
+
+        return new
         {
             id = item.Id,
             channelNumber = item.ChannelNumber,
@@ -395,8 +402,13 @@ public class InterruptsController : ControllerBase
             airAt = item.AirAt,
             expiresAt = item.ExpiresAt,
             style = item.Style.ToString().ToLowerInvariant(),
-            duckPercent = (int)Math.Round(item.DuckBedVolume * 100)
+            duckPercent = (int)Math.Round(item.DuckBedVolume * 100),
+            sessionActive,
+            warning = sessionActive
+                ? null
+                : "no active session on this channel - nobody is listening; the item will expire unless a session starts before its ttl"
         };
+    }
 
     private void TryDelete(string path)
     {

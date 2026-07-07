@@ -15,6 +15,9 @@ public class ConfigElementKey
     public static ConfigElementKey FFmpegPath => new("ffmpeg.ffmpeg_path");
     public static ConfigElementKey FFprobePath => new("ffmpeg.ffprobe_path");
     public static ConfigElementKey AnnouncerTtsUrl => new("announcer.tts.url");
+    public static ConfigElementKey AnnouncerTtsEndpoints => new("announcer.tts.endpoints");
+    public static ConfigElementKey AnnouncerTtsEndpoint(string channelNumber) => new($"announcer.{channelNumber}.tts_endpoint");
+    public static ConfigElementKey AnnouncerVoice(string channelNumber) => new($"announcer.{channelNumber}.voice");
     public static ConfigElementKey AnnouncerEnabled(string channelNumber) => new($"announcer.{channelNumber}.enabled");
     public static ConfigElementKey AnnouncerTemplate(string channelNumber) => new($"announcer.{channelNumber}.template");
     public static ConfigElementKey AnnouncerStyle(string channelNumber) => new($"announcer.{channelNumber}.style");

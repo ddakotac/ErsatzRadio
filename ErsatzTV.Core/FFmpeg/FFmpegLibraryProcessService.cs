@@ -1330,7 +1330,8 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
                 [
                     "-filter_complex",
                     $"[0:a]volume={bedVolume}[bed];" +
-                    "[bed][1:a]amix=inputs=2:duration=first:dropout_transition=0.5:normalize=0[mix];" +
+                    "[1:a]loudnorm=I=-16:TP=-1.5:LRA=11[ov];" +
+                    "[bed][ov]amix=inputs=2:duration=first:dropout_transition=0.5:normalize=0[mix];" +
                     $"[mix]apad=whole_dur={padSeconds}s[aout]",
                     "-map", "[aout]"
                 ]);

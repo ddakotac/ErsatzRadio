@@ -1,6 +1,7 @@
 using ErsatzTV.Application.Channels;
 using ErsatzTV.Core.Domain;
 using ErsatzTV.Core.Interfaces.Repositories;
+using ErsatzTV.Core.Tts;
 using LanguageExt;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
@@ -13,10 +14,15 @@ namespace ErsatzTV.Controllers;
 //   GET /api/announcer/tts
 //   PUT /api/announcer/tts  { url }
 //
-// the tts endpoint must accept POST with a plain-text body and respond with audio bytes
-// (e.g. a piper http server). template variables: {title} {artist} {album} {show}/{author}
-// {season}/{book}. style: duck (default; mixes over the item's opening at duckPercent bed
-// volume) or replace.
+//   GET    /api/announcer/tts/endpoints
+//   PUT    /api/announcer/tts/endpoints        { name, url, voice? }   (upsert by name)
+//   DELETE /api/announcer/tts/endpoints/{name}
+//
+// endpoint urls: http(s):// (POST plain text -> audio bytes, e.g. piper http server) or
+// wyoming://host:port (wyoming-piper; voice selects the piper voice by name). channels
+// reference endpoints by name via ttsEndpoint and may override voice. template variables:
+// {title} {artist} {album} {show}/{author} {season}/{book}. style: duck (default; mixes
+// over the item's opening at duckPercent bed volume) or replace.
 [ApiController]
 [ApiExplorerSettings(IgnoreApi = true)]
 public class AnnouncerController : ControllerBase
@@ -58,7 +64,15 @@ public class AnnouncerController : ControllerBase
             .GetValue<int>(ConfigElementKey.AnnouncerDuckPercent(channelNumber), cancellationToken)
             .Map(o => o.IfNone(30));
 
-        return Ok(new { channelNumber, enabled, template, style, duckPercent });
+        string ttsEndpoint = await _configElementRepository
+            .GetValue<string>(ConfigElementKey.AnnouncerTtsEndpoint(channelNumber), cancellationToken)
+            .Map(o => o.IfNone(string.Empty));
+
+        string voice = await _configElementRepository
+            .GetValue<string>(ConfigElementKey.AnnouncerVoice(channelNumber), cancellationToken)
+            .Map(o => o.IfNone(string.Empty));
+
+        return Ok(new { channelNumber, enabled, template, style, duckPercent, ttsEndpoint, voice });
     }
 
     [HttpPut("api/channels/{channelNumber}/announcer")]
@@ -120,6 +134,22 @@ public class AnnouncerController : ControllerBase
                 cancellationToken);
         }
 
+        if (request.TtsEndpoint is not null)
+        {
+            await _configElementRepository.Upsert(
+                ConfigElementKey.AnnouncerTtsEndpoint(channelNumber),
+                request.TtsEndpoint,
+                cancellationToken);
+        }
+
+        if (request.Voice is not null)
+        {
+            await _configElementRepository.Upsert(
+                ConfigElementKey.AnnouncerVoice(channelNumber),
+                request.Voice,
+                cancellationToken);
+        }
+
         return await GetChannelAnnouncer(channelNumber, cancellationToken);
     }
 
@@ -149,7 +179,90 @@ public class AnnouncerController : ControllerBase
         return Ok(new { url = request.Url });
     }
 
-    public record AnnouncerConfigRequest(bool? Enabled, string Template, string Style, int? DuckPercent);
+    [HttpGet("api/announcer/tts/endpoints")]
+    public async Task<IActionResult> GetTtsEndpoints(CancellationToken cancellationToken) =>
+        Ok(await LoadEndpoints(cancellationToken));
+
+    [HttpPut("api/announcer/tts/endpoints")]
+    public async Task<IActionResult> UpsertTtsEndpoint(
+        [FromBody] TtsEndpointRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request?.Name))
+        {
+            return BadRequest(new { error = "name is required" });
+        }
+
+        bool isWyoming = request.Url?.StartsWith("wyoming://", StringComparison.OrdinalIgnoreCase) == true;
+        bool isHttp = Uri.TryCreate(request.Url, UriKind.Absolute, out Uri parsed) &&
+                      (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps);
+
+        if (!isWyoming && !isHttp)
+        {
+            return BadRequest(new { error = "url must be http(s):// or wyoming://host:port" });
+        }
+
+        List<TtsEndpoint> endpoints = await LoadEndpoints(cancellationToken);
+        endpoints.RemoveAll(e => string.Equals(e.Name, request.Name, StringComparison.OrdinalIgnoreCase));
+        endpoints.Add(new TtsEndpoint(request.Name, request.Url, request.Voice ?? string.Empty));
+
+        await SaveEndpoints(endpoints, cancellationToken);
+
+        return Ok(endpoints);
+    }
+
+    [HttpDelete("api/announcer/tts/endpoints/{name}")]
+    public async Task<IActionResult> DeleteTtsEndpoint(string name, CancellationToken cancellationToken)
+    {
+        List<TtsEndpoint> endpoints = await LoadEndpoints(cancellationToken);
+        int removed = endpoints.RemoveAll(e => string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase));
+
+        if (removed == 0)
+        {
+            return NotFound();
+        }
+
+        await SaveEndpoints(endpoints, cancellationToken);
+
+        return Ok(endpoints);
+    }
+
+    private async Task<List<TtsEndpoint>> LoadEndpoints(CancellationToken cancellationToken)
+    {
+        Option<string> maybeJson = await _configElementRepository.GetValue<string>(
+            ConfigElementKey.AnnouncerTtsEndpoints,
+            cancellationToken);
+
+        foreach (string json in maybeJson.Filter(j => !string.IsNullOrWhiteSpace(j)))
+        {
+            try
+            {
+                return System.Text.Json.JsonSerializer.Deserialize<List<TtsEndpoint>>(json) ?? [];
+            }
+            catch
+            {
+                return [];
+            }
+        }
+
+        return [];
+    }
+
+    private Task<Unit> SaveEndpoints(List<TtsEndpoint> endpoints, CancellationToken cancellationToken) =>
+        _configElementRepository.Upsert(
+            ConfigElementKey.AnnouncerTtsEndpoints,
+            System.Text.Json.JsonSerializer.Serialize(endpoints),
+            cancellationToken);
+
+    public record AnnouncerConfigRequest(
+        bool? Enabled,
+        string Template,
+        string Style,
+        int? DuckPercent,
+        string TtsEndpoint,
+        string Voice);
 
     public record AnnouncerTtsRequest(string Url);
+
+    public record TtsEndpointRequest(string Name, string Url, string Voice);
 }

@@ -80,3 +80,18 @@ public class NavidromeNativeGenre
     [JsonPropertyName("name")]
     public string Name { get; set; }
 }
+
+public class NavidromeNativePlaylist
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; }
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; }
+}
+
+public class NavidromeNativePlaylistTrack
+{
+    [JsonPropertyName("mediaFileId")]
+    public string MediaFileId { get; set; }
+}

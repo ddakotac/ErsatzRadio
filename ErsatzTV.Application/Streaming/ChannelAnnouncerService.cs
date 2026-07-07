@@ -7,6 +7,7 @@ using ErsatzTV.Core.Domain.Filler;
 using ErsatzTV.Core.Interfaces.Repositories;
 using ErsatzTV.Core.Interfaces.Streaming;
 using ErsatzTV.Core.Interrupts;
+using ErsatzTV.Core.Tts;
 using ErsatzTV.Infrastructure.Data;
 using ErsatzTV.Infrastructure.Extensions;
 using Microsoft.EntityFrameworkCore;
@@ -26,8 +27,8 @@ public class ChannelAnnouncerService : IChannelAnnouncerService
     private readonly ILogger<ChannelAnnouncerService> _logger;
 
     // scoped per hls session; state lives for the session
-    private (DateTimeOffset FetchedAt, bool Enabled, string Template, InterruptStyle Style, double BedVolume)?
-        _cachedConfig;
+    private (DateTimeOffset FetchedAt, bool Enabled, string Template, InterruptStyle Style, double BedVolume,
+        string TtsEndpoint, string Voice)? _cachedConfig;
     private int _lastAnnouncedMediaItemId = -1;
     private bool _warnedNoTtsUrl;
 
@@ -52,7 +53,7 @@ public class ChannelAnnouncerService : IChannelAnnouncerService
     {
         try
         {
-            (bool enabled, string template, InterruptStyle style, double bedVolume) =
+            (bool enabled, string template, InterruptStyle style, double bedVolume, string ttsEndpoint, string voice) =
                 await GetConfig(channelNumber, cancellationToken);
 
             if (!enabled)
@@ -111,7 +112,7 @@ public class ChannelAnnouncerService : IChannelAnnouncerService
                         return;
                     }
 
-                    Option<string> maybeAudioPath = await GenerateTts(text, cancellationToken);
+                    Option<string> maybeAudioPath = await GenerateTts(text, ttsEndpoint, voice, cancellationToken);
                     foreach (string audioPath in maybeAudioPath)
                     {
                         Option<TimeSpan> maybeDuration = await ProbeDuration(audioPath, cancellationToken);
@@ -153,13 +154,14 @@ public class ChannelAnnouncerService : IChannelAnnouncerService
         }
     }
 
-    private async Task<(bool Enabled, string Template, InterruptStyle Style, double BedVolume)> GetConfig(
+    private async Task<(bool Enabled, string Template, InterruptStyle Style, double BedVolume,
+        string TtsEndpoint, string Voice)> GetConfig(
         string channelNumber,
         CancellationToken cancellationToken)
     {
         if (_cachedConfig is { } cached && DateTimeOffset.Now - cached.FetchedAt < ConfigCacheDuration)
         {
-            return (cached.Enabled, cached.Template, cached.Style, cached.BedVolume);
+            return (cached.Enabled, cached.Template, cached.Style, cached.BedVolume, cached.TtsEndpoint, cached.Voice);
         }
 
         bool enabled = await _configElementRepository
@@ -182,9 +184,17 @@ public class ChannelAnnouncerService : IChannelAnnouncerService
             .GetValue<int>(ConfigElementKey.AnnouncerDuckPercent(channelNumber), cancellationToken)
             .Map(o => Math.Clamp(o.IfNone(30), 0, 100) / 100.0);
 
-        _cachedConfig = (DateTimeOffset.Now, enabled, template, style, bedVolume);
+        string ttsEndpoint = await _configElementRepository
+            .GetValue<string>(ConfigElementKey.AnnouncerTtsEndpoint(channelNumber), cancellationToken)
+            .Map(o => o.IfNone(string.Empty));
 
-        return (enabled, template, style, bedVolume);
+        string voice = await _configElementRepository
+            .GetValue<string>(ConfigElementKey.AnnouncerVoice(channelNumber), cancellationToken)
+            .Map(o => o.IfNone(string.Empty));
+
+        _cachedConfig = (DateTimeOffset.Now, enabled, template, style, bedVolume, ttsEndpoint, voice);
+
+        return (enabled, template, style, bedVolume, ttsEndpoint, voice);
     }
 
     private static string RenderTemplate(string template, MediaItem mediaItem)
@@ -239,32 +249,54 @@ public class ChannelAnnouncerService : IChannelAnnouncerService
         return string.IsNullOrWhiteSpace(title) ? string.Empty : text.Trim();
     }
 
-    private async Task<Option<string>> GenerateTts(string text, CancellationToken cancellationToken)
+    private async Task<Option<string>> GenerateTts(
+        string text,
+        string ttsEndpointName,
+        string channelVoice,
+        CancellationToken cancellationToken)
     {
-        Option<string> maybeTtsUrl = await _configElementRepository.GetValue<string>(
-            ConfigElementKey.AnnouncerTtsUrl,
-            cancellationToken);
+        Option<(string Url, string Voice)> maybeTarget =
+            await ResolveTtsTarget(ttsEndpointName, channelVoice, cancellationToken);
 
-        foreach (string ttsUrl in maybeTtsUrl.Filter(u => !string.IsNullOrWhiteSpace(u)))
+        foreach ((string url, string voice) in maybeTarget)
         {
             try
             {
-                HttpClient client = _httpClientFactory.CreateClient();
-                client.Timeout = TimeSpan.FromSeconds(30);
+                byte[] audio;
 
-                using var content = new StringContent(text);
-                using HttpResponseMessage response = await client.PostAsync(ttsUrl, content, cancellationToken);
-
-                if (!response.IsSuccessStatusCode)
+                if (url.StartsWith("wyoming://", StringComparison.OrdinalIgnoreCase))
                 {
-                    _logger.LogWarning(
-                        "Announcer TTS endpoint returned {StatusCode}; skipping announcement",
-                        (int)response.StatusCode);
+                    var uri = new Uri(url.Replace("wyoming://", "tcp://", StringComparison.OrdinalIgnoreCase));
+                    int port = uri.IsDefaultPort ? 10200 : uri.Port;
 
-                    return Option<string>.None;
+                    audio = await WyomingTtsClient.Synthesize(
+                        uri.Host,
+                        port,
+                        text,
+                        Optional(voice).Filter(v => !string.IsNullOrWhiteSpace(v)),
+                        TimeSpan.FromSeconds(30),
+                        cancellationToken);
+                }
+                else
+                {
+                    HttpClient client = _httpClientFactory.CreateClient();
+                    client.Timeout = TimeSpan.FromSeconds(30);
+
+                    using var content = new StringContent(text);
+                    using HttpResponseMessage response = await client.PostAsync(url, content, cancellationToken);
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        _logger.LogWarning(
+                            "Announcer TTS endpoint returned {StatusCode}; skipping announcement",
+                            (int)response.StatusCode);
+
+                        return Option<string>.None;
+                    }
+
+                    audio = await response.Content.ReadAsByteArrayAsync(cancellationToken);
                 }
 
-                byte[] audio = await response.Content.ReadAsByteArrayAsync(cancellationToken);
                 if (audio.Length == 0)
                 {
                     _logger.LogWarning("Announcer TTS endpoint returned no audio; skipping announcement");
@@ -286,11 +318,77 @@ public class ChannelAnnouncerService : IChannelAnnouncerService
         {
             _warnedNoTtsUrl = true;
             _logger.LogWarning(
-                "Announcer is enabled but announcer.tts.url is not configured; no announcements will play");
+                "Announcer is enabled but no TTS endpoint is configured or the configured endpoint name was not found");
         }
 
         return Option<string>.None;
     }
+
+    private async Task<Option<(string Url, string Voice)>> ResolveTtsTarget(
+        string ttsEndpointName,
+        string channelVoice,
+        CancellationToken cancellationToken)
+    {
+        List<TtsEndpoint> endpoints = await LoadEndpoints(cancellationToken);
+
+        // named endpoint from channel config
+        if (!string.IsNullOrWhiteSpace(ttsEndpointName))
+        {
+            foreach (TtsEndpoint endpoint in Optional(
+                         endpoints.Find(e => string.Equals(e.Name, ttsEndpointName, StringComparison.OrdinalIgnoreCase))))
+            {
+                return (endpoint.Url, FirstNonEmpty(channelVoice, endpoint.Voice));
+            }
+
+            _logger.LogWarning(
+                "Announcer TTS endpoint {Name} was not found in the endpoints registry",
+                ttsEndpointName);
+
+            return Option<(string, string)>.None;
+        }
+
+        // first registered endpoint
+        foreach (TtsEndpoint endpoint in endpoints.HeadOrNone())
+        {
+            return (endpoint.Url, FirstNonEmpty(channelVoice, endpoint.Voice));
+        }
+
+        // legacy single url
+        Option<string> maybeLegacyUrl = await _configElementRepository.GetValue<string>(
+            ConfigElementKey.AnnouncerTtsUrl,
+            cancellationToken);
+
+        foreach (string legacyUrl in maybeLegacyUrl.Filter(u => !string.IsNullOrWhiteSpace(u)))
+        {
+            return (legacyUrl, channelVoice);
+        }
+
+        return Option<(string, string)>.None;
+    }
+
+    private async Task<List<TtsEndpoint>> LoadEndpoints(CancellationToken cancellationToken)
+    {
+        Option<string> maybeJson = await _configElementRepository.GetValue<string>(
+            ConfigElementKey.AnnouncerTtsEndpoints,
+            cancellationToken);
+
+        foreach (string json in maybeJson.Filter(j => !string.IsNullOrWhiteSpace(j)))
+        {
+            try
+            {
+                return System.Text.Json.JsonSerializer.Deserialize<List<TtsEndpoint>>(json) ?? [];
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse announcer tts endpoints; ignoring");
+            }
+        }
+
+        return [];
+    }
+
+    private static string FirstNonEmpty(params string[] values) =>
+        values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v)) ?? string.Empty;
 
     private async Task<Option<TimeSpan>> ProbeDuration(string path, CancellationToken cancellationToken)
     {

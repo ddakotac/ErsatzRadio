@@ -230,6 +230,33 @@ public class AbsExpandedItemResponse : AbsLibraryItem
 {
 }
 
+public class AbsBookGroupsResponse
+{
+    [JsonPropertyName("results")]
+    public List<AbsBookGroup> Results { get; set; }
+
+    [JsonPropertyName("total")]
+    public int? Total { get; set; }
+}
+
+public class AbsBookGroup
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; }
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; }
+
+    [JsonPropertyName("books")]
+    public List<AbsBookGroupBook> Books { get; set; }
+}
+
+public class AbsBookGroupBook
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; }
+}
+
 /// <summary>
 /// abs is inconsistent about numeric vs string fields across versions
 /// </summary>
