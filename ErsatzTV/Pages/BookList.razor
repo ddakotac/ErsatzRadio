@@ -1,5 +1,7 @@
 @page "/media/books"
 @using ErsatzTV.Application.Audiobookshelf
+@using ErsatzTV.Application.MediaCards
+@using ErsatzTV.Core.Domain
 @using static LanguageExt.Prelude
 @inherits FragmentNavigationBase
 @inject IMediator Mediator
@@ -14,10 +16,32 @@
                 {
                     <MudChip T="string" Color="Color.Primary" OnClose="@ClearAuthor">@AuthorFilterName</MudChip>
                 }
+                <MudSpacer/>
+                <MudButtonGroup Variant="Variant.Outlined" Size="Size.Small">
+                    <MudIconButton Icon="@Icons.Material.Filled.ViewList"
+                                   Color="@(IsTiles ? Color.Default : Color.Primary)"
+                                   OnClick="@(_ => SetView("list"))"/>
+                    <MudIconButton Icon="@Icons.Material.Filled.GridView"
+                                   Color="@(IsTiles ? Color.Primary : Color.Default)"
+                                   OnClick="@(_ => SetView("tiles"))"/>
+                </MudButtonGroup>
             </MudStack>
             <MudTextField @bind-Value="_filter" Placeholder="Filter books..." Immediate="true"
                           Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
                           Class="mb-4" Clearable="true"/>
+            @if (IsTiles)
+            {
+                <MudStack Row="true" Wrap="Wrap.Wrap" Class="mb-8">
+                    @foreach (AudiobookBookViewModel book in FilteredBooks)
+                    {
+                        <MediaCard Data="@ToCard(book)"
+                                   Href="@($"media/tv/seasons/{book.SeasonId}")"
+                                   ArtworkKind="ArtworkKind.Poster"/>
+                    }
+                </MudStack>
+            }
+            else
+            {
             <MudTable Items="@FilteredBooks" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm"
                       RowsPerPage="100" Loading="@_loading">
                 <HeaderContent>
@@ -40,6 +64,7 @@
                     <MudTablePager PageSizeOptions="new[] { 50, 100, 250 }"/>
                 </PagerContent>
             </MudTable>
+            }
         </MudContainer>
     </div>
 </MudForm>
@@ -48,6 +73,40 @@
     [Parameter]
     [SupplyParameterFromQuery(Name = "author")]
     public int? AuthorShowId { get; set; }
+
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "view")]
+    public string View { get; set; }
+
+    private bool IsTiles => string.Equals(View, "tiles", StringComparison.OrdinalIgnoreCase);
+
+    private void SetView(string view)
+    {
+        var uri = "media/books";
+        var separator = '?';
+        if (AuthorShowId.HasValue)
+        {
+            uri = $"{uri}?author={AuthorShowId.Value}";
+            separator = '&';
+        }
+
+        if (view == "tiles")
+        {
+            uri = $"{uri}{separator}view=tiles";
+        }
+
+        NavigationManager.NavigateTo(uri);
+    }
+
+    private static MediaCardViewModel ToCard(AudiobookBookViewModel book) =>
+        new(
+            book.SeasonId,
+            book.Title,
+            book.Author,
+            book.Title,
+            book.Poster,
+            MediaItemState.Normal,
+            HasMediaInfo: false);
 
     private List<AudiobookBookViewModel> _books = [];
     private string _filter;

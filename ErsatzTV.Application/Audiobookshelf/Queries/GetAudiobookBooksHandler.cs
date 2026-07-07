@@ -1,3 +1,6 @@
+using ErsatzTV.Core.Audiobookshelf;
+using Flurl;
+using ErsatzTV.Core.Domain;
 using ErsatzTV.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -26,7 +29,12 @@ public class GetAudiobookBooksHandler : IRequestHandler<GetAudiobookBooks, List<
                 season.SeasonMetadata.Select(sm => sm.Title).FirstOrDefault() ?? string.Empty,
                 show.ShowMetadata.Select(sm => sm.Title).FirstOrDefault() ?? string.Empty,
                 season.Episodes.Count,
-                show.LibraryPath.Library.Name);
+                show.LibraryPath.Library.Name,
+                season.SeasonMetadata
+                    .SelectMany(sm => sm.Artwork)
+                    .Where(a => a.ArtworkKind == ArtworkKind.Poster)
+                    .Select(a => a.Path)
+                    .FirstOrDefault() ?? string.Empty);
 
         foreach (int showId in request.ShowId)
         {
@@ -40,14 +48,25 @@ public class GetAudiobookBooksHandler : IRequestHandler<GetAudiobookBooks, List<
                     season.SeasonMetadata.Select(sm => sm.Title).FirstOrDefault() ?? string.Empty,
                     show.ShowMetadata.Select(sm => sm.Title).FirstOrDefault() ?? string.Empty,
                     season.Episodes.Count,
-                    show.LibraryPath.Library.Name);
+                    show.LibraryPath.Library.Name,
+                    season.SeasonMetadata
+                        .SelectMany(sm => sm.Artwork)
+                        .Where(a => a.ArtworkKind == ArtworkKind.Poster)
+                        .Select(a => a.Path)
+                        .FirstOrDefault() ?? string.Empty);
         }
 
         List<AudiobookBookViewModel> books = await query.ToListAsync(cancellationToken);
 
         return books
+            .Map(b => b with { Poster = RewritePoster(b.Poster) })
             .OrderBy(b => b.Author, StringComparer.OrdinalIgnoreCase)
             .ThenBy(b => b.Title, StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        static string RewritePoster(string poster) =>
+            poster.StartsWith("abs://", StringComparison.OrdinalIgnoreCase)
+                ? AudiobookshelfUrl.RelativeProxyForArtwork(poster).SetQueryParam("width", 440)
+                : poster;
     }
 }

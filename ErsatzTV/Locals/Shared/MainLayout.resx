@@ -66,6 +66,12 @@
     <data name="ButtonMediaPodcasts" xml:space="preserve">
         <value>Podcasts</value>
     </data>
+    <data name="ButtonSettingsAnnouncer" xml:space="preserve">
+        <value>Announcer</value>
+    </data>
+    <data name="ButtonSupportInterrupts" xml:space="preserve">
+        <value>Interrupts</value>
+    </data>
     <data name="ButtonMediaSourcesJellyfin" xml:space="preserve">
         <value>Jellyfin</value>
     </data>

@@ -1,0 +1,279 @@
+@page "/settings/announcer"
+@using System.Text.Json
+@using ErsatzTV.Application.Channels
+@using ErsatzTV.Core.Domain
+@using ErsatzTV.Core.Interfaces.Repositories
+@using ErsatzTV.Core.Tts
+@implements IDisposable
+@inject IMediator Mediator
+@inject IConfigElementRepository ConfigElementRepository
+@inject ISnackbar Snackbar
+
+<MudForm Style="max-height: 100%">
+    <div class="d-flex flex-column" style="height: 100vh; overflow-x: auto">
+        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="pt-8">
+            <MudText Typo="Typo.h5" Class="mb-2">TTS Endpoints</MudText>
+            <MudDivider Class="mb-6"/>
+            <MudText Typo="Typo.body2" Class="mb-4">
+                http(s):// endpoints receive POST plain text and must respond with audio bytes.
+                wyoming://host:port speaks natively to wyoming-piper; voice selects the piper voice by name.
+            </MudText>
+            <MudTable Items="@_endpoints" Dense="true" Class="mb-4">
+                <HeaderContent>
+                    <MudTh>Name</MudTh>
+                    <MudTh>Url</MudTh>
+                    <MudTh>Default Voice</MudTh>
+                    <MudTh/>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Name">@context.Name</MudTd>
+                    <MudTd DataLabel="Url">@context.Url</MudTd>
+                    <MudTd DataLabel="Default Voice">@context.Voice</MudTd>
+                    <MudTd Style="text-align: right">
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                       OnClick="@(_ => DeleteEndpoint(context))"/>
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+            <MudStack Row="true" Breakpoint="Breakpoint.SmAndDown" AlignItems="AlignItems.Center" Class="mb-8">
+                <MudTextField @bind-Value="_newName" Label="Name" Margin="Margin.Dense"/>
+                <MudTextField @bind-Value="_newUrl" Label="Url" Margin="Margin.Dense"
+                              Placeholder="wyoming://opal.lan:10200"/>
+                <MudTextField @bind-Value="_newVoice" Label="Default Voice (optional)" Margin="Margin.Dense"/>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                           OnClick="@AddEndpoint">
+                    Add
+                </MudButton>
+            </MudStack>
+
+            <MudText Typo="Typo.h5" Class="mb-2">Channel Announcer</MudText>
+            <MudDivider Class="mb-6"/>
+            <MudText Typo="Typo.body2" Class="mb-4">
+                Announces each new item over its opening (duck) or before it starts (replace).
+                Template variables: {title} {artist} {album} for songs; {title} {book}/{season} {author}/{show} for chapters.
+            </MudText>
+            <MudStack Row="true" Breakpoint="Breakpoint.SmAndDown" Class="form-field-stack gap-md-8 mb-5">
+                <div class="d-flex">
+                    <MudText>Channel</MudText>
+                </div>
+                <MudSelect T="string" Value="@_selectedChannelNumber" ValueChanged="@OnChannelChanged"
+                           Margin="Margin.Dense">
+                    @foreach (ChannelViewModel channel in _channels)
+                    {
+                        <MudSelectItem T="string" Value="@channel.Number">
+                            @($"{channel.Number} - {channel.Name}")
+                        </MudSelectItem>
+                    }
+                </MudSelect>
+            </MudStack>
+            @if (!string.IsNullOrWhiteSpace(_selectedChannelNumber))
+            {
+                <MudStack Row="true" Breakpoint="Breakpoint.SmAndDown" Class="form-field-stack gap-md-8 mb-5">
+                    <div class="d-flex">
+                        <MudText>Enabled</MudText>
+                    </div>
+                    <MudSwitch T="bool" @bind-Value="_enabled" Color="Color.Primary"/>
+                </MudStack>
+                <MudStack Row="true" Breakpoint="Breakpoint.SmAndDown" Class="form-field-stack gap-md-8 mb-5">
+                    <div class="d-flex">
+                        <MudText>Template</MudText>
+                    </div>
+                    <MudTextField @bind-Value="_template" Margin="Margin.Dense"/>
+                </MudStack>
+                <MudStack Row="true" Breakpoint="Breakpoint.SmAndDown" Class="form-field-stack gap-md-8 mb-5">
+                    <div class="d-flex">
+                        <MudText>Style</MudText>
+                    </div>
+                    <MudSelect T="string" @bind-Value="_style" Margin="Margin.Dense">
+                        <MudSelectItem T="string" Value="@("duck")">duck (over the item's opening)</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("replace")">replace (before the item)</MudSelectItem>
+                    </MudSelect>
+                </MudStack>
+                <MudStack Row="true" Breakpoint="Breakpoint.SmAndDown" Class="form-field-stack gap-md-8 mb-5">
+                    <div class="d-flex">
+                        <MudText>Duck Bed Volume %</MudText>
+                    </div>
+                    <MudNumericField T="int" @bind-Value="_duckPercent" Min="0" Max="100" Margin="Margin.Dense"/>
+                </MudStack>
+                <MudStack Row="true" Breakpoint="Breakpoint.SmAndDown" Class="form-field-stack gap-md-8 mb-5">
+                    <div class="d-flex">
+                        <MudText>TTS Endpoint</MudText>
+                    </div>
+                    <MudSelect T="string" @bind-Value="_ttsEndpoint" Margin="Margin.Dense" Clearable="true">
+                        @foreach (TtsEndpoint endpoint in _endpoints)
+                        {
+                            <MudSelectItem T="string" Value="@endpoint.Name">@endpoint.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudStack>
+                <MudStack Row="true" Breakpoint="Breakpoint.SmAndDown" Class="form-field-stack gap-md-8 mb-5">
+                    <div class="d-flex">
+                        <MudText>Voice Override</MudText>
+                    </div>
+                    <MudTextField @bind-Value="_voice" Margin="Margin.Dense"
+                                  Placeholder="(endpoint default)"/>
+                </MudStack>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save"
+                           OnClick="@SaveChannelConfig" Class="mb-8">
+                    Save Channel Announcer
+                </MudButton>
+            }
+        </MudContainer>
+    </div>
+</MudForm>
+
+@code {
+    private CancellationTokenSource _cts;
+
+    private List<TtsEndpoint> _endpoints = [];
+    private List<ChannelViewModel> _channels = [];
+
+    private string _newName;
+    private string _newUrl;
+    private string _newVoice;
+
+    private string _selectedChannelNumber;
+    private bool _enabled;
+    private string _template;
+    private string _style = "duck";
+    private int _duckPercent = 30;
+    private string _ttsEndpoint;
+    private string _voice;
+
+    public void Dispose()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _cts = new CancellationTokenSource();
+        CancellationToken token = _cts.Token;
+
+        List<ChannelViewModel> allChannels = await Mediator.Send(new GetAllChannels(), token);
+        _channels = allChannels
+            .Filter(c => c.SongVideoMode == ChannelSongVideoMode.AudioOnly)
+            .OrderBy(c => c.Number)
+            .ToList();
+
+        await LoadEndpoints(token);
+    }
+
+    private async Task LoadEndpoints(CancellationToken token)
+    {
+        Option<string> maybeJson = await ConfigElementRepository.GetValue<string>(
+            ConfigElementKey.AnnouncerTtsEndpoints,
+            token);
+
+        _endpoints = [];
+        foreach (string json in maybeJson.Filter(j => !string.IsNullOrWhiteSpace(j)))
+        {
+            try
+            {
+                _endpoints = JsonSerializer.Deserialize<List<TtsEndpoint>>(json) ?? [];
+            }
+            catch
+            {
+                _endpoints = [];
+            }
+        }
+    }
+
+    private async Task SaveEndpoints()
+    {
+        await ConfigElementRepository.Upsert(
+            ConfigElementKey.AnnouncerTtsEndpoints,
+            JsonSerializer.Serialize(_endpoints),
+            CancellationToken.None);
+    }
+
+    private async Task AddEndpoint()
+    {
+        if (string.IsNullOrWhiteSpace(_newName))
+        {
+            Snackbar.Add("Name is required", Severity.Warning);
+            return;
+        }
+
+        bool isWyoming = _newUrl?.StartsWith("wyoming://", StringComparison.OrdinalIgnoreCase) == true;
+        bool isHttp = Uri.TryCreate(_newUrl, UriKind.Absolute, out Uri parsed) &&
+                      (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps);
+
+        if (!isWyoming && !isHttp)
+        {
+            Snackbar.Add("Url must be http(s):// or wyoming://host:port", Severity.Warning);
+            return;
+        }
+
+        _endpoints.RemoveAll(e => string.Equals(e.Name, _newName, StringComparison.OrdinalIgnoreCase));
+        _endpoints.Add(new TtsEndpoint(_newName, _newUrl, _newVoice ?? string.Empty));
+        await SaveEndpoints();
+
+        Snackbar.Add($"Saved endpoint {_newName}", Severity.Success);
+        _newName = _newUrl = _newVoice = null;
+    }
+
+    private async Task DeleteEndpoint(TtsEndpoint endpoint)
+    {
+        _endpoints.Remove(endpoint);
+        await SaveEndpoints();
+        Snackbar.Add($"Removed endpoint {endpoint.Name}", Severity.Success);
+    }
+
+    private async Task OnChannelChanged(string channelNumber)
+    {
+        _selectedChannelNumber = channelNumber;
+        if (string.IsNullOrWhiteSpace(channelNumber))
+        {
+            return;
+        }
+
+        CancellationToken token = _cts.Token;
+
+        _enabled = await ConfigElementRepository
+            .GetValue<bool>(ConfigElementKey.AnnouncerEnabled(channelNumber), token)
+            .Map(o => o.IfNone(false));
+
+        _template = await ConfigElementRepository
+            .GetValue<string>(ConfigElementKey.AnnouncerTemplate(channelNumber), token)
+            .Map(o => o.IfNone("Now playing: {title}"));
+
+        _style = await ConfigElementRepository
+            .GetValue<string>(ConfigElementKey.AnnouncerStyle(channelNumber), token)
+            .Map(o => o.IfNone("duck"));
+
+        _duckPercent = await ConfigElementRepository
+            .GetValue<int>(ConfigElementKey.AnnouncerDuckPercent(channelNumber), token)
+            .Map(o => o.IfNone(30));
+
+        _ttsEndpoint = await ConfigElementRepository
+            .GetValue<string>(ConfigElementKey.AnnouncerTtsEndpoint(channelNumber), token)
+            .Map(o => o.Match(s => string.IsNullOrWhiteSpace(s) ? null : s, () => null));
+
+        _voice = await ConfigElementRepository
+            .GetValue<string>(ConfigElementKey.AnnouncerVoice(channelNumber), token)
+            .Map(o => o.IfNone(string.Empty));
+    }
+
+    private async Task SaveChannelConfig()
+    {
+        string channelNumber = _selectedChannelNumber;
+        if (string.IsNullOrWhiteSpace(channelNumber))
+        {
+            return;
+        }
+
+        await ConfigElementRepository.Upsert(ConfigElementKey.AnnouncerEnabled(channelNumber), _enabled, CancellationToken.None);
+        await ConfigElementRepository.Upsert(ConfigElementKey.AnnouncerTemplate(channelNumber), _template ?? string.Empty, CancellationToken.None);
+        await ConfigElementRepository.Upsert(ConfigElementKey.AnnouncerStyle(channelNumber), _style ?? "duck", CancellationToken.None);
+        await ConfigElementRepository.Upsert(ConfigElementKey.AnnouncerDuckPercent(channelNumber), Math.Clamp(_duckPercent, 0, 100), CancellationToken.None);
+        await ConfigElementRepository.Upsert(ConfigElementKey.AnnouncerTtsEndpoint(channelNumber), _ttsEndpoint ?? string.Empty, CancellationToken.None);
+        await ConfigElementRepository.Upsert(ConfigElementKey.AnnouncerVoice(channelNumber), _voice ?? string.Empty, CancellationToken.None);
+
+        Snackbar.Add($"Saved announcer for channel {channelNumber} (takes effect within ~30s)", Severity.Success);
+    }
+
+}

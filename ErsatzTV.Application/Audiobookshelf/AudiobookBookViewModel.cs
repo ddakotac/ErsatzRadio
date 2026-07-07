@@ -6,4 +6,5 @@ public record AudiobookBookViewModel(
     string Title,
     string Author,
     int ChapterCount,
-    string LibraryName);
+    string LibraryName,
+    string Poster);

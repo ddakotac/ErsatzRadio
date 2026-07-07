@@ -1,0 +1,160 @@
+@page "/system/interrupts"
+@using ErsatzTV.Application.Channels
+@using ErsatzTV.Core.Domain
+@using ErsatzTV.Core.Interfaces.FFmpeg
+@using ErsatzTV.Core.Interfaces.Streaming
+@using ErsatzTV.Core.Interrupts
+@implements IDisposable
+@inject IMediator Mediator
+@inject IChannelInterruptService InterruptService
+@inject IFFmpegSegmenterService SegmenterService
+@inject ISnackbar Snackbar
+
+<MudForm Style="max-height: 100%">
+    <div class="d-flex flex-column" style="height: 100vh; overflow-x: auto">
+        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="pt-8">
+            <MudText Typo="Typo.h5" Class="mb-2">Interrupt Queue</MudText>
+            <MudDivider Class="mb-6"/>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+                <MudSelect T="string" Value="@_selectedChannelNumber" ValueChanged="@OnChannelChanged"
+                           Label="Channel" Margin="Margin.Dense" Style="max-width: 320px">
+                    @foreach (ChannelViewModel channel in _channels)
+                    {
+                        <MudSelectItem T="string" Value="@channel.Number">
+                            @($"{channel.Number} - {channel.Name}")
+                        </MudSelectItem>
+                    }
+                </MudSelect>
+                @if (!string.IsNullOrWhiteSpace(_selectedChannelNumber))
+                {
+                    <MudChip T="string" Color="@(_sessionActive ? Color.Success : Color.Default)" Size="Size.Small">
+                        @(_sessionActive ? "session active" : "no listeners")
+                    </MudChip>
+                    <MudSpacer/>
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh"
+                               OnClick="@Refresh">
+                        Refresh
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Error"
+                               StartIcon="@Icons.Material.Filled.ClearAll"
+                               OnClick="@ClearAll" Disabled="@(_items.Count == 0)">
+                        Clear All
+                    </MudButton>
+                }
+            </MudStack>
+            @if (!string.IsNullOrWhiteSpace(_selectedChannelNumber))
+            {
+                <MudTable Items="@_items" Dense="true" Breakpoint="Breakpoint.Sm">
+                    <HeaderContent>
+                        <MudTh>Title</MudTh>
+                        <MudTh>Priority</MudTh>
+                        <MudTh>Style</MudTh>
+                        <MudTh>Duration</MudTh>
+                        <MudTh>Air At</MudTh>
+                        <MudTh>Expires</MudTh>
+                        <MudTh/>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Title">@context.Title</MudTd>
+                        <MudTd DataLabel="Priority">
+                            @(context.Priority == 0 ? "0 (emergency)" : context.Priority.ToString())
+                        </MudTd>
+                        <MudTd DataLabel="Style">@context.Style.ToString().ToLowerInvariant()</MudTd>
+                        <MudTd DataLabel="Duration">@context.Duration.ToString(@"m\:ss")</MudTd>
+                        <MudTd DataLabel="Air At">
+                            @(context.AirAt?.ToString("HH:mm:ss") ?? "next boundary")
+                        </MudTd>
+                        <MudTd DataLabel="Expires">@context.ExpiresAt.ToString("HH:mm:ss")</MudTd>
+                        <MudTd Style="text-align: right">
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                           OnClick="@(_ => Remove(context))"/>
+                        </MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent>
+                        <MudText Typo="Typo.body2">Queue is empty</MudText>
+                    </NoRecordsContent>
+                </MudTable>
+                <MudText Typo="Typo.body2" Class="mt-4">
+                    Refreshes automatically every 5 seconds. Items are injected via the api; see docs/INTERRUPTS.md.
+                </MudText>
+            }
+        </MudContainer>
+    </div>
+</MudForm>
+
+@code {
+    private CancellationTokenSource _cts;
+    private System.Timers.Timer _timer;
+
+    private List<ChannelViewModel> _channels = [];
+    private List<InterruptQueueItem> _items = [];
+    private string _selectedChannelNumber;
+    private bool _sessionActive;
+
+    public void Dispose()
+    {
+        _timer?.Stop();
+        _timer?.Dispose();
+        _cts?.Cancel();
+        _cts?.Dispose();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _cts = new CancellationTokenSource();
+
+        List<ChannelViewModel> allChannels = await Mediator.Send(new GetAllChannels(), _cts.Token);
+        _channels = allChannels
+            .Filter(c => c.SongVideoMode == ChannelSongVideoMode.AudioOnly)
+            .OrderBy(c => c.Number)
+            .ToList();
+
+        if (_timer is null)
+        {
+            _timer = new System.Timers.Timer(5000);
+            _timer.Elapsed += (_, _) => _ = InvokeAsync(() =>
+            {
+                Refresh();
+                StateHasChanged();
+            });
+            _timer.Start();
+        }
+    }
+
+    private void OnChannelChanged(string channelNumber)
+    {
+        _selectedChannelNumber = channelNumber;
+        Refresh();
+    }
+
+    private void Refresh()
+    {
+        if (string.IsNullOrWhiteSpace(_selectedChannelNumber))
+        {
+            return;
+        }
+
+        _items = InterruptService.List(_selectedChannelNumber);
+        _sessionActive = SegmenterService.IsActive(_selectedChannelNumber);
+    }
+
+    private void Remove(InterruptQueueItem item)
+    {
+        if (InterruptService.Remove(_selectedChannelNumber, item.Id))
+        {
+            Snackbar.Add($"Removed {item.Title}", Severity.Success);
+        }
+
+        Refresh();
+    }
+
+    private void ClearAll()
+    {
+        int removed = InterruptService.Clear(_selectedChannelNumber);
+        Snackbar.Add($"Removed {removed} item(s)", Severity.Success);
+        Refresh();
+    }
+
+}
