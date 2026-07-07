@@ -134,6 +134,8 @@ public class AudiobookshelfTelevisionRepository : IAudiobookshelfTelevisionRepos
                 .ThenInclude(mm => mm.Artwork)
                 .Include(m => m.SeasonMetadata)
                 .ThenInclude(mm => mm.Guids)
+                .Include(m => m.SeasonMetadata)
+                .ThenInclude(mm => mm.Tags)
                 .SingleOrDefaultAsync(s => s.ItemId == item.ItemId, cancellationToken);
 
             foreach (AudiobookshelfSeason audiobookshelfSeason in maybeExisting)
@@ -720,6 +722,9 @@ public class AudiobookshelfTelevisionRepository : IAudiobookshelfTelevisionRepos
         metadata.ReleaseDate = incomingMetadata.ReleaseDate;
 
         // tags (collection/series membership)
+        metadata.Tags ??= [];
+        incomingMetadata.Tags ??= [];
+
         foreach (Tag tag in metadata.Tags
                      .Filter(t => incomingMetadata.Tags.All(t2 => t2.Name != t.Name))
                      .Filter(t => t.ExternalCollectionId is null)
