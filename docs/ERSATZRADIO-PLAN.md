@@ -299,3 +299,42 @@ NEXT SESSION (session 10) candidates:
 - audio-only error process (anullsrc) - carried x4
 - icecast/direct MP3 endpoint - carried x4
 - ui: interrupt queue + announcer config page; books tiles/list toggle
+
+
+### Session 10 (2026-07-07): wyoming tts + endpoints registry + playlist/collection tags (branch feature/scheduled-interrupts-and-list-views cont.)
+COMPILE-VERIFIED (app + scanner, 0 errors). Session 9 duck + announcer fully validated live first
+(incl. hotfix 0011: NextState assumed realtime transcodes always complete - incomplete realtime
+transcodes from duck/truncation restarted the item; now seek-resume).
+
+Wyoming tts (dakota runs 2x slackr31337/wyoming-piper-gpu on opal.lan:10200/10201):
+- WyomingTtsClient (Core/Tts): raw tcp, synthesize event with inline data, tolerates legacy
+  data_length framing, collects audio-chunk pcm -> RIFF wav. no deps, 30s timeout, 64mb guard.
+- named endpoints registry (announcer.tts.endpoints config element, json): PUT/GET/DELETE
+  /api/announcer/tts/endpoints[/{name}]. urls: http(s):// (POST text -> audio) or wyoming://host:port.
+- per-channel: ttsEndpoint (name) + voice (overrides endpoint default). resolution: named endpoint ->
+  first registered -> legacy announcer.tts.url. UNTESTED live: wyoming protocol against real piper.
+- overlay loudnorm (I=-16 TP=-1.5 LRA=11 on [1:a]) - quiet tts/overlays survive loud program material
+  (dakota's serenity-vs-metal finding)
+
+sessionActive: enqueue responses now report whether the channel has an active hls session + warning
+when not (the wrong-channel footgun from duck testing)
+
+Playlist/collection tags (tag:"name" in searches + smart collections - the schedulability feature):
+- navidrome: native /api/playlist + /api/playlist/{id}/tracks (mediaFileId) fetched once per library
+  scan -> song Tags; etag includes sorted playlist names so membership changes resync
+- abs: /api/libraries/{id}/{collections,series} (AbsBookGroup models - CA1711 forbids *Collection
+  names) -> tags on book SEASONS and chapter EPISODES; 5-min cache shares one fetch across
+  season+episode scans; etags include tag fingerprint
+- AudiobookshelfTelevisionRepository.UpdateSeason now syncs Tags (show/episode already did);
+  NavidromeSongRepository.UpdateSong tag sync existed
+- NOTE: tag changes resync on next scan via etag; no version bump this time (fingerprint change
+  bumps affected items only)
+
+GOTCHA (recurring): python edit scripts write-at-end - a failed assert mid-script silently rolls
+back earlier successful replaces in the same file. Verify signatures after mixed edit rounds.
+
+NEXT SESSION (session 11) candidates:
+- LIVE TEST: wyoming tts against real piper (protocol framing is the risk), per-channel voices,
+  playlist/collection tags after rescan (verify tag:"name" queries + smart collections)
+- late-scheduled force-cut; audio-only error process (anullsrc, x5); icecast endpoint (x5)
+- ui: announcer + tts endpoints config page, interrupt queue page, books tiles/list toggle
