@@ -265,7 +265,7 @@ public class InterruptsController : ControllerBase
     // style defaults to DUCK for tts (spoken over the schedule); pass style=replace to
     // insert instead. body: { text, ttsEndpoint?, voice?, priority?, ttlSeconds?, title?,
     // airAt?, style?, duckPercent? }
-    [HttpPost("api/channels/{channelNumber}/interrupts/tts")]
+    [HttpPost("tts")]
     public async Task<IActionResult> EnqueueTts(
         string channelNumber,
         [FromBody] InterruptTtsRequest request,
@@ -277,7 +277,7 @@ public class InterruptsController : ControllerBase
 
     // broadcast tts to multiple channels. channels: ["1","2"] or "active" (all audio-only
     // channels with a live session). one synthesis, one file copy per channel.
-    [HttpPost("api/interrupts/tts")]
+    [HttpPost("/api/interrupts/tts")]
     public async Task<IActionResult> BroadcastTts(
         [FromBody] InterruptTtsBroadcastRequest request,
         CancellationToken cancellationToken)
@@ -301,7 +301,7 @@ public class InterruptsController : ControllerBase
 
     // broadcast a path-based interrupt to multiple channels. deleteWhenDone is ignored
     // (multiple queue items share the file).
-    [HttpPost("api/interrupts/path")]
+    [HttpPost("/api/interrupts/path")]
     public async Task<IActionResult> BroadcastPath(
         [FromBody] InterruptPathBroadcastRequest request,
         CancellationToken cancellationToken)
