@@ -163,8 +163,8 @@ rest_command:
     method: POST
     content_type: "application/json"
     payload: >-
-      {"text": "{{ text }}",
-       "channels": {{ channels | default('"active"') | tojson if channels is not string else channels }},
+      {"text": {{ text | tojson }},
+       "channels": {{ channels | default('active') | tojson }},
        "priority": {{ priority | default(0) }},
        "style": "{{ style | default('duck') }}",
        "duckPercent": {{ duck_percent | default(25) }},
