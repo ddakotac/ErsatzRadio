@@ -408,3 +408,42 @@ NEXT SESSION (session 13) candidates:
 - late-scheduled force-cut; anullsrc audio-only error process (x6)
 - icecast endpoint (parked)
 - possible: announcer preview/test button on the settings page (now trivial via the tts endpoint)
+
+
+### Session 13 (2026-07-07): closing hardening (branch feature/closing-hardening)
+COMPILE-VERIFIED (app + scanner, 0 errors). Session 12 broadcast + HA rest_command validated live
+first (after hotfixes 0016 route-combining + 0017 newtonsoft binding - PATTERN: check Startup's web
+stack config (class [Route] attrs, AddNewtonsoftJson) before extending controllers).
+
+Announcer preview (dakota-requested):
+- GET /api/announcer/tts/preview?text=&endpoint=&voice= -> synthesizes and returns audio/wav
+  (temp file deleted after read)
+- settings page: Preview Voice button renders the channel's template with sample metadata and
+  plays it in an inline <audio> element (cache-busted url)
+
+Audio-only error/offline silence (anullsrc, carried x6 - DONE):
+- ForError: audio-only + hls segmenter channels emit silence (anullsrc lavfi, profile-matched
+  codec/bitrate/samplerate/channels, copy->aac fallback since lavfi can't stream-copy) instead of
+  the video error card; error logged as warning
+- Slug (offline card): same treatment (python replace-all GOTCHA: the ForError insert anchor also
+  matched Slug - kept intentionally, adapted for its signature)
+- unknown-duration errors play silence in 30s chunks so the loop keeps checking for recovery and
+  pending interrupts
+
+Scheduled force-cut for late-enqueued emergencies:
+- Enqueue(priority 0 + future airAt) schedules a Timer at airAt: if the item is STILL QUEUED then
+  (truncation missed it - enqueued after the covering transcode started), the force handler cuts;
+  item airs within the hls buffer of the target. Early-enqueued items dequeue via truncation before
+  the timer fires -> no-op.
+- timers cancelled on dequeue/expiry/remove/clear (CancelAirAtTimer under _sync)
+- semantics: priority 0 + airAt = "cut if necessary"; priority 1 + airAt = truncation-or-boundary only
+
+docs: INTERRUPTS.md scheduled-emergency section; README tts/broadcast cheatsheet + silence note.
+
+REMAINING (documented, deliberate): icecast/direct MP3 endpoint (parked - flexibility not priority).
+LIVE TESTS PENDING: preview button, silence on a scheduling gap, late-enqueued scheduled p0.
+
+The project is feature-complete for the radio appliance goal: audio-only channels, navidrome+abs
+sources with playlist/collection/series tags, full interrupt matrix (replace/duck x boundary/
+emergency/scheduled + late force-cut), tts announcer with wyoming piper + per-channel voices,
+whole-house HA broadcast, management ui, fork docs + upstream-sync guidance.
