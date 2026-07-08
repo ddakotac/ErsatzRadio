@@ -1,6 +1,7 @@
 using ErsatzTV.Application.Channels;
 using ErsatzTV.Core.Domain;
 using ErsatzTV.Core.Interfaces.Repositories;
+using ErsatzTV.Core.Interfaces.Tts;
 using ErsatzTV.Core.Tts;
 using LanguageExt;
 using MediatR;
@@ -29,11 +30,16 @@ public class AnnouncerController : ControllerBase
 {
     private readonly IMediator _mediator;
     private readonly IConfigElementRepository _configElementRepository;
+    private readonly ITtsSynthesisService _ttsSynthesisService;
 
-    public AnnouncerController(IMediator mediator, IConfigElementRepository configElementRepository)
+    public AnnouncerController(
+        IMediator mediator,
+        IConfigElementRepository configElementRepository,
+        ITtsSynthesisService ttsSynthesisService)
     {
         _mediator = mediator;
         _configElementRepository = configElementRepository;
+        _ttsSynthesisService = ttsSynthesisService;
     }
 
     [HttpGet("api/channels/{channelNumber}/announcer")]
@@ -177,6 +183,50 @@ public class AnnouncerController : ControllerBase
         await _configElementRepository.Upsert(ConfigElementKey.AnnouncerTtsUrl, request.Url, cancellationToken);
 
         return Ok(new { url = request.Url });
+    }
+
+    // synthesize a test phrase and return the audio (for the settings page preview button)
+    [HttpGet("api/announcer/tts/preview")]
+    public async Task<IActionResult> PreviewTts(
+        [FromQuery] string text,
+        [FromQuery] string endpoint,
+        [FromQuery] string voice,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return BadRequest(new { error = "text is required" });
+        }
+
+        Option<string> maybePath = await _ttsSynthesisService.SynthesizeToFile(
+            text,
+            endpoint,
+            voice,
+            cancellationToken);
+
+        foreach (string path in maybePath)
+        {
+            try
+            {
+                byte[] audio = await System.IO.File.ReadAllBytesAsync(path, cancellationToken);
+                return File(audio, "audio/wav");
+            }
+            finally
+            {
+                try
+                {
+                    System.IO.File.Delete(path);
+                }
+                catch
+                {
+                    // best effort
+                }
+            }
+        }
+
+        return StatusCode(
+            502,
+            new { error = "tts synthesis failed; check the tts endpoint configuration and logs" });
     }
 
     [HttpGet("api/announcer/tts/endpoints")]

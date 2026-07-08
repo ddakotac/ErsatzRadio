@@ -693,6 +693,19 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
         Option<int> qsvExtraHardwareFrames,
         CancellationToken cancellationToken)
     {
+        // audio-only channels must never emit a video error card - players choke on a
+        // video track appearing mid-stream. emit silence instead and log the error.
+        if (channel.SongVideoMode is ChannelSongVideoMode.AudioOnly &&
+            channel.StreamingMode is StreamingMode.HttpLiveStreamingSegmenter)
+        {
+            _logger.LogWarning(
+                "Audio-only channel {Channel} is playing silence instead of an error card: {Error}",
+                channel.Number,
+                errorMessage);
+
+            return ForAudioOnlyError(ffmpegPath, channel, duration, hlsRealtime, ptsOffset);
+        }
+
         FFmpegPlaybackSettings playbackSettings = FFmpegPlaybackSettingsCalculator.CalculateGeneratedImageSettings(
             channel.StreamingMode,
             channel.FFmpegProfile,
@@ -851,6 +864,17 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
         TimeSpan ptsOffset,
         CancellationToken cancellationToken)
     {
+        // audio-only channels play silence instead of the video offline slug
+        if (channel.SongVideoMode is ChannelSongVideoMode.AudioOnly &&
+            channel.StreamingMode is StreamingMode.HttpLiveStreamingSegmenter)
+        {
+            _logger.LogDebug(
+                "Audio-only channel {Channel} is playing silence instead of an offline slug",
+                channel.Number);
+
+            return ForAudioOnlyError(ffmpegPath, channel, Optional(duration), hlsRealtime, ptsOffset);
+        }
+
         FFmpegPlaybackSettings playbackSettings = FFmpegPlaybackSettingsCalculator.CalculateGeneratedImageSettings(
             channel.StreamingMode,
             channel.FFmpegProfile,
@@ -1203,6 +1227,112 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
         return GetCommand(ffmpegPath, videoInputFile, None, None, None, None, pipeline, false);
     }
 
+
+    private Command ForAudioOnlyError(
+        string ffmpegPath,
+        Channel channel,
+        Option<TimeSpan> duration,
+        bool hlsRealtime,
+        TimeSpan ptsOffset)
+    {
+        FFmpegProfile profile = channel.FFmpegProfile;
+
+        // anullsrc cannot be stream-copied; fall back to aac for copy profiles
+        string audioCodec = profile.AudioFormat switch
+        {
+            FFmpegProfileAudioFormat.Ac3 => "ac3",
+            _ => "aac"
+        };
+
+        string transcodeFolder = Path.Combine(FileSystemLayout.TranscodeFolder, channel.Number);
+        Directory.CreateDirectory(transcodeFolder);
+        string playlistPath = Path.Combine(transcodeFolder, "live.m3u8");
+        string segmentTemplate = Path.Combine(transcodeFolder, "live%06d.ts");
+
+        bool isFirstTranscode = ptsOffset == TimeSpan.Zero;
+
+        int channelCount = Math.Max(profile.AudioChannels, 1);
+        string channelLayout = channelCount == 1 ? "mono" : "stereo";
+
+        var arguments = new List<string>
+        {
+            "-nostdin",
+            "-hide_banner",
+            "-nostats",
+            "-loglevel", "error"
+        };
+
+        if (hlsRealtime)
+        {
+            arguments.AddRange(["-readrate", "1.0"]);
+        }
+
+        arguments.AddRange(
+        [
+            "-f", "lavfi",
+            "-i", $"anullsrc=r={profile.AudioSampleRate * 1000}:cl={channelLayout}",
+            "-vn", "-sn", "-dn",
+            "-map_metadata", "-1",
+            "-map_chapters", "-1",
+            "-c:a", audioCodec,
+            "-b:a", $"{profile.AudioBitrate}k",
+            "-maxrate:a", $"{profile.AudioBitrate}k",
+            "-bufsize:a", $"{profile.AudioBufferSize}k",
+            "-ar", $"{profile.AudioSampleRate}k",
+            "-ac", channelCount.ToString(CultureInfo.InvariantCulture)
+        ]);
+
+        // errors without a known duration play silence in bounded chunks so the session
+        // loop keeps checking for recovered content and pending interrupts
+        TimeSpan limit = duration.IfNone(TimeSpan.FromSeconds(30));
+        if (limit < TimeSpan.FromSeconds(1))
+        {
+            limit = TimeSpan.FromSeconds(1);
+        }
+
+        arguments.AddRange(
+        [
+            "-t", $"{(int)limit.TotalHours:00}:{limit:mm}:{limit:ss\\.fffffff}",
+            "-output_ts_offset", $"{ptsOffset.TotalSeconds.ToString(NumberFormatInfo.InvariantInfo)}s",
+            "-muxdelay", "0",
+            "-muxpreload", "0",
+            "-f", "hls",
+            "-hls_time", "4",
+            "-hls_list_size", "0",
+            "-segment_list_flags", "+live",
+            "-hls_segment_filename", segmentTemplate,
+            "-hls_segment_type", "mpegts"
+        ]);
+
+        var mpegtsFlags = string.Empty;
+        if (isFirstTranscode)
+        {
+            mpegtsFlags += "+initial_discontinuity";
+        }
+
+        if (profile.AudioFormat == FFmpegProfileAudioFormat.AacLatm)
+        {
+            mpegtsFlags += "+latm";
+        }
+
+        if (!string.IsNullOrWhiteSpace(mpegtsFlags))
+        {
+            arguments.AddRange(["-hls_segment_options", $"mpegts_flags={mpegtsFlags}"]);
+        }
+
+        string hlsFlags = isFirstTranscode
+            ? "program_date_time+omit_endlist+append_list+independent_segments"
+            : "program_date_time+omit_endlist+append_list+discont_start+independent_segments";
+
+        arguments.AddRange(["-hls_flags", hlsFlags, playlistPath]);
+
+        _logger.LogDebug("Audio-only error (silence) ffmpeg arguments {FFmpegArguments}", arguments);
+
+        return Cli.Wrap(ffmpegPath)
+            .WithArguments(arguments)
+            .WithValidation(CommandResultValidation.None)
+            .WithStandardErrorPipe(PipeTarget.ToStream(Stream.Null));
+    }
 
     public Task<PlayoutItemResult> ForAudioOnlyPlayoutItem(
         string ffmpegPath,

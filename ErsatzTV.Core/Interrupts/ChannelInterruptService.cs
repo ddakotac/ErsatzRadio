@@ -8,6 +8,7 @@ public class ChannelInterruptService : IChannelInterruptService
     private readonly Lock _sync = new();
     private readonly Dictionary<string, List<InterruptQueueItem>> _queues = new();
     private readonly Dictionary<string, Action> _forceHandlers = new();
+    private readonly Dictionary<Guid, Timer> _airAtTimers = new();
     private readonly ILogger<ChannelInterruptService> _logger;
 
     public ChannelInterruptService(ILogger<ChannelInterruptService> logger) => _logger = logger;
@@ -38,6 +39,19 @@ public class ChannelInterruptService : IChannelInterruptService
             if (item.Priority == 0 && isDue && _forceHandlers.TryGetValue(item.ChannelNumber, out Action handler))
             {
                 maybeForceHandler = handler;
+            }
+
+            // scheduled emergencies (priority 0 + future airAt): if transcode truncation
+            // hasn't already landed the boundary by the air time (item enqueued too late),
+            // force-cut at the air time; the item then airs within the hls buffer of it
+            if (item.Priority == 0 && item.AirAt is { } airAt && airAt > DateTimeOffset.Now)
+            {
+                TimeSpan delay = airAt - DateTimeOffset.Now;
+                _airAtTimers[item.Id] = new Timer(
+                    _ => FireScheduledForceCut(item.ChannelNumber, item.Id),
+                    null,
+                    delay,
+                    Timeout.InfiniteTimeSpan);
             }
         }
 
@@ -72,6 +86,11 @@ public class ChannelInterruptService : IChannelInterruptService
                 expired.AddRange(queue.Where(i => i.ExpiresAt <= asOf));
                 queue.RemoveAll(i => i.ExpiresAt <= asOf);
 
+                foreach (InterruptQueueItem item in expired)
+                {
+                    CancelAirAtTimer(item.Id);
+                }
+
                 Option<InterruptQueueItem> maybeNext = queue
                     .Where(i => i.AirAt is null || i.AirAt <= asOf)
                     .OrderBy(i => i.Priority)
@@ -81,6 +100,7 @@ public class ChannelInterruptService : IChannelInterruptService
                 foreach (InterruptQueueItem next in maybeNext)
                 {
                     queue.Remove(next);
+                    CancelAirAtTimer(next.Id);
                     result = next;
                 }
             }
@@ -145,6 +165,7 @@ public class ChannelInterruptService : IChannelInterruptService
                 foreach (InterruptQueueItem item in Optional(queue.Find(i => i.Id == id)))
                 {
                     queue.Remove(item);
+                    CancelAirAtTimer(item.Id);
                     removed = item;
                 }
             }
@@ -168,6 +189,11 @@ public class ChannelInterruptService : IChannelInterruptService
             {
                 removed.AddRange(queue);
                 queue.Clear();
+
+                foreach (InterruptQueueItem item in removed)
+                {
+                    CancelAirAtTimer(item.Id);
+                }
             }
         }
 
@@ -206,6 +232,53 @@ public class ChannelInterruptService : IChannelInterruptService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to delete interrupt temp file {Path}", item.Path);
+        }
+    }
+
+    private void FireScheduledForceCut(string channelNumber, Guid itemId)
+    {
+        Option<Action> maybeForceHandler = Option<Action>.None;
+
+        lock (_sync)
+        {
+            CancelAirAtTimer(itemId);
+
+            // no-op when the item already dequeued (truncation landed it on time)
+            bool stillQueued = _queues.TryGetValue(channelNumber, out List<InterruptQueueItem> queue) &&
+                               queue.Any(i => i.Id == itemId);
+
+            if (stillQueued && _forceHandlers.TryGetValue(channelNumber, out Action handler))
+            {
+                maybeForceHandler = handler;
+            }
+        }
+
+        foreach (Action handler in maybeForceHandler)
+        {
+            try
+            {
+                _logger.LogInformation(
+                    "Force-interrupting channel {Channel} at the scheduled air time of late-enqueued item {Id}",
+                    channelNumber,
+                    itemId);
+
+                handler();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Failed to invoke scheduled force-interrupt handler for channel {Channel}",
+                    channelNumber);
+            }
+        }
+    }
+
+    private void CancelAirAtTimer(Guid itemId)
+    {
+        if (_airAtTimers.Remove(itemId, out Timer timer))
+        {
+            timer.Dispose();
         }
     }
 

@@ -113,10 +113,20 @@
                     <MudTextField @bind-Value="_voice" Margin="Margin.Dense"
                                   Placeholder="(endpoint default)"/>
                 </MudStack>
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save"
-                           OnClick="@SaveChannelConfig" Class="mb-8">
-                    Save Channel Announcer
-                </MudButton>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-8">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save"
+                               OnClick="@SaveChannelConfig">
+                        Save Channel Announcer
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.RecordVoiceOver"
+                               OnClick="@PreviewVoice">
+                        Preview Voice
+                    </MudButton>
+                    @if (_previewUrl is not null)
+                    {
+                        <audio controls autoplay src="@_previewUrl" style="height: 40px"></audio>
+                    }
+                </MudStack>
             }
         </MudContainer>
     </div>
@@ -139,6 +149,7 @@
     private int _duckPercent = 30;
     private string _ttsEndpoint;
     private string _voice;
+    private string _previewUrl;
 
     public void Dispose()
     {
@@ -256,6 +267,23 @@
         _voice = await ConfigElementRepository
             .GetValue<string>(ConfigElementKey.AnnouncerVoice(channelNumber), token)
             .Map(o => o.IfNone(string.Empty));
+    }
+
+    private void PreviewVoice()
+    {
+        string sample = (_template ?? "Now playing: {title}")
+            .Replace("{title}", "The Queen of All Cities", StringComparison.OrdinalIgnoreCase)
+            .Replace("{artist}", "Judicator", StringComparison.OrdinalIgnoreCase)
+            .Replace("{album}", "The Last Emperor", StringComparison.OrdinalIgnoreCase)
+            .Replace("{book}", "The Last Emperor", StringComparison.OrdinalIgnoreCase)
+            .Replace("{season}", "The Last Emperor", StringComparison.OrdinalIgnoreCase)
+            .Replace("{author}", "Judicator", StringComparison.OrdinalIgnoreCase)
+            .Replace("{show}", "Judicator", StringComparison.OrdinalIgnoreCase);
+
+        _previewUrl = $"api/announcer/tts/preview?text={Uri.EscapeDataString(sample)}" +
+                      $"&endpoint={Uri.EscapeDataString(_ttsEndpoint ?? string.Empty)}" +
+                      $"&voice={Uri.EscapeDataString(_voice ?? string.Empty)}" +
+                      $"&cb={Guid.NewGuid():N}";
     }
 
     private async Task SaveChannelConfig()

@@ -29,6 +29,13 @@ the air time begins. Rule of thumb: **enqueue at least a few minutes early**
 (one full item length + the ~60s buffer). Items enqueued too late play at the
 next boundary after their air time, bounded by TTL.
 
+A **scheduled emergency** (`priority=0` + `airAt`) adds a safety net for items
+enqueued too late for truncation: if the item is still queued at its air time,
+the current transcode is force-cut, and the item airs within the HLS buffer
+(~40-60s) of the target. Enqueued early, truncation still lands it exactly and
+the force-cut never fires. Use `priority=1` scheduled items when cutting is
+unacceptable.
+
 TTL for scheduled items counts from `airAt`, not from enqueue -- so
 `airAt=09:00:00, ttlSeconds=120` means "play at 9:00, drop if it can't start by
 9:02".

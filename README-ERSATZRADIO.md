@@ -73,6 +73,15 @@ curl -X POST http://host:8409/api/channels/1/interrupts/path \
 curl http://host:8409/api/channels/1/interrupts
 curl -X DELETE http://host:8409/api/channels/1/interrupts/{id}
 
+# speak text directly (synthesized via the endpoint registry; ducks by default)
+curl -X POST http://host:8409/api/channels/1/interrupts/tts \
+  -H "Content-Type: application/json" -d '{"text": "Dinner is ready"}'
+
+# broadcast to every listening channel
+curl -X POST http://host:8409/api/interrupts/tts \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Dinner is ready", "channels": "active", "priority": 0}'
+
 # tts endpoints + announcer
 curl -X PUT http://host:8409/api/announcer/tts/endpoints \
   -H "Content-Type: application/json" \
@@ -92,8 +101,8 @@ curl -X PUT http://host:8409/api/channels/1/announcer \
 - Duck requires a transcoding audio profile; `Copy` skips the overlay
 - Enqueue responses include `sessionActive` -- if false, nobody is listening and
   the item will expire unless a session starts
-- Recommended: configure fallback filler on audio channels so scheduling gaps
-  play audio rather than the video error card
+- Scheduling gaps and errors on audio-only channels play **silence**, never a
+  video error card (fallback filler is still nicer for listeners; configure it)
 
 ## Development
 
