@@ -447,3 +447,47 @@ The project is feature-complete for the radio appliance goal: audio-only channel
 sources with playlist/collection/series tags, full interrupt matrix (replace/duck x boundary/
 emergency/scheduled + late force-cut), tts announcer with wyoming piper + per-channel voices,
 whole-house HA broadcast, management ui, fork docs + upstream-sync guidance.
+
+
+### Session 14 (2026-07-08): watch folders + mass sync sidecar (branch feature/watch-folders)
+COMPILE-VERIFIED (app + scanner, 0 errors; app build OOM'd once - csc exit 137 - retried with -m:1).
+
+Watch folders (timely podcast / breaking-news delivery via the interrupt queue):
+- WatchFolderService (BackgroundService, ErsatzTV/Services): 30s poll (POLLING not
+  FileSystemWatcher - inotify unreliable over NFS/SMB), recursive audio-extension enumerate,
+  stability check (same size 2 consecutive polls via in-memory _pending), per-folder PERSISTED
+  watermark (config element watchfolders.watermark.{name}, ISO round-trip format; initialized to
+  NOW on first sight so the existing backlog never airs; unprobeable files advance the watermark
+  so they never retry), ffprobe duration, enqueues per mapped channel (DeleteFileWhenDone=false,
+  title "{folder}: {filename}"), stale-pending purge after 6h
+- WatchFolder record (Core/Interrupts): name/path/channels/priority(1)/style(replace)/
+  duckPercent(30)/ttlSeconds(3600)/enabled
+- WatchFoldersController: GET/PUT(upsert by name; validates style/duck/channels; warns when the
+  path is not visible in the container)/DELETE /api/watchfolders - NO class-level route (learned
+  from 0016)
+- semantics: news mode = folder->channel priority 1 (next boundary); breaking news = priority 0
+  and/or style=duck to any channel set
+
+MASS <- TVH radio sync (sidecar, scripts/mass-tvh-sync/mass_tvh_sync.py):
+- [DECISION] script over MASS provider plugin: MASS providers are in-tree python in the server
+  package (verified against developers.music-assistant.io + repo) - no sideload mechanism; a
+  custom provider means fork/overlay maintenance. TVHeadend provider UPSTREAM CONTRIBUTION parked
+  for endgame (generic, plausibly mergeable).
+- tvh api/channeltag/grid resolves the Radio tag -> api/channel/grid filtered by tag; stream urls
+  {tvh}/stream/channel/{uuid} with a dedicated streaming user's basic auth embedded (+ optional
+  profile); icons via icon_public_url
+- MA side via music-assistant-client (token auth, schema >=28 pattern verified from the client
+  repo README); add-to-library through a COMPAT LAYER (add_item_to_library + send_command
+  fallbacks) because the method name drifts across MA versions; --introspect dumps client.music
+  methods for repair after MA updates; idempotent by name match; --dry-run/--force
+- config touch points at the top of the script (tvh url/users, mass url/token, name prefix)
+
+docs: INTERRUPTS.md watch-folders section (mechanics: watermark, ttl, poll, not-marked-played
+caveat); README feature bullet.
+
+LIVE TESTS PENDING: register a folder mapped to channel 1, drop an mp3 in, expect the enqueue log
+line within ~60s and boundary playback; abs-download-folder end-to-end; sync script against real
+tvh+mass (introspect first if add fails).
+
+NEXT: RSS-native feed monitoring (future lever - poll feeds directly, no ABS in the loop);
+TVHeadend MASS provider upstream contribution (endgame).
