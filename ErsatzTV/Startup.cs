@@ -874,6 +874,7 @@ public class Startup
         services.AddTransient<SlowQueryInterceptor>();
 
         // run-once/blocking startup services
+        services.AddHostedService<WatchFolderService>();
         services.AddHostedService<EndpointValidatorService>();
         services.AddHostedService<DatabaseMigratorService>();
         services.AddHostedService<DatabaseCleanerService>();

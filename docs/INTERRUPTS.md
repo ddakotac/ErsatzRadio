@@ -125,6 +125,37 @@ never for filler, and each item is announced once per session. TTS failures skip
 announcement and never disturb the stream. The TTS endpoint contract is: HTTP POST,
 plain-text body, audio bytes response.
 
+## Watch folders (timely podcasts / breaking news)
+
+Register a folder and newly arrived audio files play on the mapped channels
+automatically - at the next item boundary (priority 1, the default), cutting in
+(priority 0), or ducked over content (style=duck). Built for the podcast flow:
+Audiobookshelf downloads a new episode into the folder, ErsatzRadio notices
+within ~60s, and it airs after the current song.
+
+```bash
+# news podcasts break into channel 1 after the current item
+curl -X PUT http://ohs:8409/api/watchfolders \
+  -H "Content-Type: application/json" \
+  -d '{"name": "news", "path": "/media/shared/podcasts/news",
+       "channels": ["1"], "priority": 1, "ttlSeconds": 3600}'
+
+curl http://ohs:8409/api/watchfolders            # list
+curl -X DELETE http://ohs:8409/api/watchfolders/news
+```
+
+Mechanics worth knowing:
+- The folder is **polled every 30s** (FileSystemWatcher/inotify is unreliable over
+  NFS/SMB); a file is picked up once its size is stable across two polls
+- The watermark starts at registration time: **pre-existing files never play**,
+  only files arriving afterward (tracked by mtime, persisted across restarts)
+- `ttlSeconds` (default 3600) bounds staleness - an episode that can't air within
+  its TTL (nobody listening, long current item) silently expires
+- Subfolders are included; non-audio files are ignored
+- Interrupt-played files are not marked played in any library - if the same
+  episode is also in the channel's *scheduled* collections it can recur via the
+  schedule later
+
 ## TTS interrupts (speak text directly)
 
 Skip the file entirely: POST text and ErsatzRadio synthesizes it through the TTS
