@@ -491,3 +491,40 @@ tvh+mass (introspect first if add fails).
 
 NEXT: RSS-native feed monitoring (future lever - poll feeds directly, no ABS in the loop);
 TVHeadend MASS provider upstream contribution (endgame).
+
+
+### Session 15 (2026-07-13): rss feeds + delivery ui + observability (branch feature/watchfolders-ui)
+COMPILE-VERIFIED (app + scanner, 0 errors; csc OOM exit 137 recurred TWICE on
+ErsatzTV.Infrastructure.Sqlite even with -m:1 - RESOLUTION: build the failing project ALONE first,
+then the app build rides the incremental output. Add to the sandbox playbook.)
+
+Watch folder live validation (dakota): registration ok, touch-trick enqueue ok ("The Wire - July
+10, 2026" enqueued p0) - but DIDN'T AIR: folder mapped channel 1, only live session was channel 2.
+The sessionActive footgun again, invisible because service logs omitted session state.
+
+Observability (the fix):
+- WatchFolderService: startup INF (poll interval), per-poll DBG (folder names), missing-path WRN,
+  watermark-init INF ("pre-existing files will not air"), enqueue INF now includes
+  sessionActive=true/false with a NOBODY IS LISTENING warning suffix
+- GOTCHA: referenced nonexistent StaticLogger in a static helper first - pass ILogger param
+
+RssFeedService (ErsatzTV/Services, BackgroundService):
+- 5-min poll; rss 2.0 items via XDocument (title/enclosure url/pubDate; rfc1123 parse with named-
+  timezone cleanup EST/EDT/CST/... -> offsets); newest MaxItemsPerFeed=10 considered
+- per-feed pubDate watermark (rssfeeds.watermark.{name}, init NOW = backlog never airs)
+- enclosure download to interrupts folder (512MB guard, 10-min timeout, headers-read streaming);
+  download failure does NOT advance watermark (retries next cycle); unprobeable DOES advance
+- enqueue per channel with DeleteFileWhenDone=true; one file COPY per extra channel (the
+  delete-race lesson from broadcast); sessionActive in enqueue log
+- RssFeed record (Core/Interrupts) mirrors WatchFolder with Url; ConfigElementKey RssFeeds +
+  RssFeedWatermark; RssFeedsController GET/PUT/DELETE /api/rssfeeds (generated from watchfolders
+  controller - watch the folder.Path vs request.Path rename traps in mechanical edits)
+
+UI: /settings/watchfolders (nav Settings > Watch Folders) - two sections (watch folders + rss
+feeds), tables with edit/delete, forms with channel MULTI-select of audio-only channels, priority/
+style/duckPercent/ttl/enabled; direct IConfigElementRepository access (announcer-page pattern).
+
+docs: INTERRUPTS.md rss section + sessionActive troubleshooting note; README bullet updated.
+
+LIVE TESTS PENDING: fix the folder's channel mapping (or open a ch1 session) + re-touch; rss feed
+end-to-end vs a real podcast feed (S2 Underground candidate); ui page walkthrough.
