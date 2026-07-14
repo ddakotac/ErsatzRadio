@@ -156,6 +156,28 @@ Mechanics worth knowing:
   episode is also in the channel's *scheduled* collections it can recur via the
   schedule later
 
+## RSS feeds (podcast episodes straight from the feed)
+
+The same delivery model as watch folders, but polling the podcast feed itself -
+no Audiobookshelf or library in the loop. New episodes (by pubDate) are
+downloaded and enqueued on the mapped channels; the feed's existing backlog
+never airs. Feeds are polled every 5 minutes.
+
+```bash
+curl -X PUT http://ohs:8409/api/rssfeeds \
+  -H "Content-Type: application/json" \
+  -d '{"name": "s2", "url": "https://example.com/feed.xml",
+       "channels": ["1"], "priority": 1, "ttlSeconds": 3600}'
+
+curl http://ohs:8409/api/rssfeeds
+curl -X DELETE http://ohs:8409/api/rssfeeds/s2
+```
+
+Watch folders and RSS feeds are also configurable in the UI: Settings > Watch
+Folders. Delivery enqueue logs include `sessionActive` - if the mapped channel
+has no live session, the log says so loudly and the item expires at its TTL
+(this is the most common "why didn't it play" cause; check the channel number).
+
 ## TTS interrupts (speak text directly)
 
 Skip the file entirely: POST text and ErsatzRadio synthesizes it through the TTS

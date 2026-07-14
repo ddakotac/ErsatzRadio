@@ -20,6 +20,8 @@ public class ConfigElementKey
     public static ConfigElementKey AnnouncerVoice(string channelNumber) => new($"announcer.{channelNumber}.voice");
     public static ConfigElementKey WatchFolders => new("watchfolders.list");
     public static ConfigElementKey WatchFolderWatermark(string folderName) => new($"watchfolders.watermark.{folderName}");
+    public static ConfigElementKey RssFeeds => new("rssfeeds.list");
+    public static ConfigElementKey RssFeedWatermark(string feedName) => new($"rssfeeds.watermark.{feedName}");
     public static ConfigElementKey AnnouncerEnabled(string channelNumber) => new($"announcer.{channelNumber}.enabled");
     public static ConfigElementKey AnnouncerTemplate(string channelNumber) => new($"announcer.{channelNumber}.template");
     public static ConfigElementKey AnnouncerStyle(string channelNumber) => new($"announcer.{channelNumber}.style");

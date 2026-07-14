@@ -4,6 +4,7 @@ using CliWrap;
 using CliWrap.Buffered;
 using ErsatzTV.Core;
 using ErsatzTV.Core.Domain;
+using ErsatzTV.Core.Interfaces.FFmpeg;
 using ErsatzTV.Core.Interfaces.Repositories;
 using ErsatzTV.Core.Interfaces.Streaming;
 using ErsatzTV.Core.Interrupts;
@@ -27,6 +28,7 @@ public class WatchFolderService : BackgroundService
 
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IChannelInterruptService _interruptService;
+    private readonly IFFmpegSegmenterService _ffmpegSegmenterService;
     private readonly ILogger<WatchFolderService> _logger;
 
     // path -> (size, seenAt) for the stability check
@@ -35,15 +37,21 @@ public class WatchFolderService : BackgroundService
     public WatchFolderService(
         IServiceScopeFactory serviceScopeFactory,
         IChannelInterruptService interruptService,
+        IFFmpegSegmenterService ffmpegSegmenterService,
         ILogger<WatchFolderService> logger)
     {
         _serviceScopeFactory = serviceScopeFactory;
         _interruptService = interruptService;
+        _ffmpegSegmenterService = ffmpegSegmenterService;
         _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _logger.LogInformation(
+            "Watch folder service started; polling every {Seconds}s",
+            (int)PollInterval.TotalSeconds);
+
         // let the app settle before the first poll
         await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken);
 
@@ -78,6 +86,11 @@ public class WatchFolderService : BackgroundService
             return;
         }
 
+        _logger.LogDebug(
+            "Polling {Count} watch folder(s): {Names}",
+            folders.Count,
+            string.Join(", ", folders.Map(f => f.Name)));
+
         Option<string> maybeFFprobePath = await configRepository.GetValue<string>(
             ConfigElementKey.FFprobePath,
             cancellationToken);
@@ -86,10 +99,15 @@ public class WatchFolderService : BackgroundService
         {
             if (string.IsNullOrWhiteSpace(folder.Path) || !Directory.Exists(folder.Path))
             {
+                _logger.LogWarning(
+                    "Watch folder {Name}: path {Path} does not exist; skipping",
+                    folder.Name,
+                    folder.Path);
+
                 continue;
             }
 
-            DateTimeOffset watermark = await GetWatermark(configRepository, folder.Name, cancellationToken);
+            DateTimeOffset watermark = await GetWatermark(configRepository, folder.Name, _logger, cancellationToken);
             var newWatermark = watermark;
 
             IEnumerable<string> files;
@@ -204,13 +222,18 @@ public class WatchFolderService : BackgroundService
 
                 _interruptService.Enqueue(item);
 
+                bool sessionActive = _ffmpegSegmenterService.IsActive(channelNumber);
                 _logger.LogInformation(
-                    "Watch folder {Name}: enqueued {File} on channel {Channel} (priority {Priority}, {Style})",
+                    "Watch folder {Name}: enqueued {File} on channel {Channel} (priority {Priority}, {Style}); sessionActive={SessionActive}{Warning}",
                     folder.Name,
                     Path.GetFileName(file),
                     channelNumber,
                     folder.Priority,
-                    style);
+                    style,
+                    sessionActive,
+                    sessionActive
+                        ? string.Empty
+                        : " - NOBODY IS LISTENING; the item will expire unless a session starts before its ttl");
             }
         }
 
@@ -283,6 +306,7 @@ public class WatchFolderService : BackgroundService
     private static async Task<DateTimeOffset> GetWatermark(
         IConfigElementRepository configRepository,
         string folderName,
+        ILogger logger,
         CancellationToken cancellationToken)
     {
         Option<string> maybeValue = await configRepository.GetValue<string>(
@@ -300,6 +324,10 @@ public class WatchFolderService : BackgroundService
         // first sighting of this folder: start from now so the existing backlog
         // does not blast onto the air
         DateTimeOffset now = DateTimeOffset.Now;
+        logger.LogInformation(
+            "Watch folder {Name}: initialized watermark to {Now}; pre-existing files will not air, only files arriving after this",
+            folderName,
+            now);
         await configRepository.Upsert(
             ConfigElementKey.WatchFolderWatermark(folderName),
             now.ToString("O", CultureInfo.InvariantCulture),

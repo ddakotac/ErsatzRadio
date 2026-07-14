@@ -66,6 +66,9 @@
     <data name="ButtonMediaPodcasts" xml:space="preserve">
         <value>Podcasts</value>
     </data>
+    <data name="ButtonSettingsWatchFolders" xml:space="preserve">
+        <value>Watch Folders</value>
+    </data>
     <data name="ButtonSettingsAnnouncer" xml:space="preserve">
         <value>Announcer</value>
     </data>

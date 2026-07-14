@@ -27,9 +27,10 @@ playouts, filler) drives radio channels instead of TV channels.
   ducked over each item's opening; template-driven; per-channel voice
 - **TTS endpoints** -- named registry; speaks **Wyoming protocol natively**
   (wyoming-piper, no bridge) or generic HTTP POST-text-audio endpoints
-- **Watch folders** -- newly arrived audio files (e.g. fresh podcast episodes
-  downloaded by Audiobookshelf) automatically play on mapped channels at the
-  next boundary; polling-based, NFS/SMB-safe
+- **Watch folders + RSS feeds** -- newly arrived audio files (e.g. fresh podcast
+  episodes downloaded by Audiobookshelf) or newly published feed episodes
+  automatically play on mapped channels at the next boundary; polling-based,
+  NFS/SMB-safe, configurable in the UI
 - **Radio-oriented UI** -- Authors/Books/Podcasts and Song Artists/Albums browse
   pages, library filters and card subtitles, remote artwork proxying for ABS and
   Navidrome, announcer + interrupt queue management pages

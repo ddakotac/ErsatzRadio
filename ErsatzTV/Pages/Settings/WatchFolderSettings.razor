@@ -1,0 +1,366 @@
+@page "/settings/watchfolders"
+@using System.Text.Json
+@using ErsatzTV.Application.Channels
+@using ErsatzTV.Core.Domain
+@using ErsatzTV.Core.Interfaces.Repositories
+@using ErsatzTV.Core.Interrupts
+@implements IDisposable
+@inject IMediator Mediator
+@inject IConfigElementRepository ConfigElementRepository
+@inject ISnackbar Snackbar
+
+<MudForm Style="max-height: 100%">
+    <div class="d-flex flex-column" style="height: 100vh; overflow-x: auto">
+        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="pt-8">
+            <MudText Typo="Typo.h5" Class="mb-2">Watch Folders</MudText>
+            <MudDivider Class="mb-6"/>
+            <MudText Typo="Typo.body2" Class="mb-4">
+                Newly arrived audio files play on the mapped channels automatically. Pre-existing files never
+                air - only files arriving after registration. Priority 1 plays after the current item;
+                priority 0 cuts in. Polled every 30 seconds.
+            </MudText>
+            <MudTable Items="@_folders" Dense="true" Class="mb-4" Breakpoint="Breakpoint.Sm">
+                <HeaderContent>
+                    <MudTh>Name</MudTh>
+                    <MudTh>Path</MudTh>
+                    <MudTh>Channels</MudTh>
+                    <MudTh>Priority</MudTh>
+                    <MudTh>Style</MudTh>
+                    <MudTh>TTL</MudTh>
+                    <MudTh>Enabled</MudTh>
+                    <MudTh/>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Name">@context.Name</MudTd>
+                    <MudTd DataLabel="Path">@context.Path</MudTd>
+                    <MudTd DataLabel="Channels">@string.Join(", ", context.Channels)</MudTd>
+                    <MudTd DataLabel="Priority">@context.Priority</MudTd>
+                    <MudTd DataLabel="Style">@context.Style</MudTd>
+                    <MudTd DataLabel="TTL">@($"{context.TtlSeconds}s")</MudTd>
+                    <MudTd DataLabel="Enabled">@(context.Enabled ? "yes" : "no")</MudTd>
+                    <MudTd Style="text-align: right">
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                       OnClick="@(_ => EditFolder(context))"/>
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                       OnClick="@(_ => DeleteFolder(context))"/>
+                    </MudTd>
+                </RowTemplate>
+                <NoRecordsContent>
+                    <MudText Typo="Typo.body2">No watch folders registered</MudText>
+                </NoRecordsContent>
+            </MudTable>
+            <MudGrid Class="mb-8">
+                <MudItem xs="12" md="3">
+                    <MudTextField @bind-Value="_folderName" Label="Name" Margin="Margin.Dense"/>
+                </MudItem>
+                <MudItem xs="12" md="5">
+                    <MudTextField @bind-Value="_folderPath" Label="Path (inside the container)"
+                                  Margin="Margin.Dense" Placeholder="/media/shared/podcasts/news"/>
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudSelect T="string" @bind-SelectedValues="_folderChannels" MultiSelection="true"
+                               Label="Channels" Margin="Margin.Dense">
+                        @foreach (ChannelViewModel channel in _channels)
+                        {
+                            <MudSelectItem T="string" Value="@channel.Number">
+                                @($"{channel.Number} - {channel.Name}")
+                            </MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="6" md="2">
+                    <MudNumericField T="int" @bind-Value="_folderPriority" Label="Priority" Min="0" Max="9"
+                                     Margin="Margin.Dense"/>
+                </MudItem>
+                <MudItem xs="6" md="2">
+                    <MudSelect T="string" @bind-Value="_folderStyle" Label="Style" Margin="Margin.Dense">
+                        <MudSelectItem T="string" Value="@("replace")">replace</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("duck")">duck</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="6" md="2">
+                    <MudNumericField T="int" @bind-Value="_folderDuckPercent" Label="Duck Bed %" Min="0" Max="100"
+                                     Margin="Margin.Dense"/>
+                </MudItem>
+                <MudItem xs="6" md="2">
+                    <MudNumericField T="int" @bind-Value="_folderTtl" Label="TTL (s)" Min="30"
+                                     Margin="Margin.Dense"/>
+                </MudItem>
+                <MudItem xs="6" md="2" Class="d-flex align-center">
+                    <MudSwitch T="bool" @bind-Value="_folderEnabled" Label="Enabled" Color="Color.Primary"/>
+                </MudItem>
+                <MudItem xs="6" md="2" Class="d-flex align-center">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.Save" OnClick="@SaveFolder">
+                        Save Folder
+                    </MudButton>
+                </MudItem>
+            </MudGrid>
+
+            <MudText Typo="Typo.h5" Class="mb-2">RSS Feeds</MudText>
+            <MudDivider Class="mb-6"/>
+            <MudText Typo="Typo.body2" Class="mb-4">
+                Podcast feeds polled directly (every 5 minutes) - no library or Audiobookshelf in the loop.
+                Newly published episodes are downloaded and played on the mapped channels; the feed's
+                existing backlog never airs.
+            </MudText>
+            <MudTable Items="@_feeds" Dense="true" Class="mb-4" Breakpoint="Breakpoint.Sm">
+                <HeaderContent>
+                    <MudTh>Name</MudTh>
+                    <MudTh>Url</MudTh>
+                    <MudTh>Channels</MudTh>
+                    <MudTh>Priority</MudTh>
+                    <MudTh>Style</MudTh>
+                    <MudTh>TTL</MudTh>
+                    <MudTh>Enabled</MudTh>
+                    <MudTh/>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Name">@context.Name</MudTd>
+                    <MudTd DataLabel="Url" Style="max-width: 280px; overflow: hidden; text-overflow: ellipsis">
+                        @context.Url
+                    </MudTd>
+                    <MudTd DataLabel="Channels">@string.Join(", ", context.Channels)</MudTd>
+                    <MudTd DataLabel="Priority">@context.Priority</MudTd>
+                    <MudTd DataLabel="Style">@context.Style</MudTd>
+                    <MudTd DataLabel="TTL">@($"{context.TtlSeconds}s")</MudTd>
+                    <MudTd DataLabel="Enabled">@(context.Enabled ? "yes" : "no")</MudTd>
+                    <MudTd Style="text-align: right">
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                       OnClick="@(_ => EditFeed(context))"/>
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                       OnClick="@(_ => DeleteFeed(context))"/>
+                    </MudTd>
+                </RowTemplate>
+                <NoRecordsContent>
+                    <MudText Typo="Typo.body2">No rss feeds registered</MudText>
+                </NoRecordsContent>
+            </MudTable>
+            <MudGrid Class="mb-12">
+                <MudItem xs="12" md="3">
+                    <MudTextField @bind-Value="_feedName" Label="Name" Margin="Margin.Dense"/>
+                </MudItem>
+                <MudItem xs="12" md="5">
+                    <MudTextField @bind-Value="_feedUrl" Label="Feed Url" Margin="Margin.Dense"
+                                  Placeholder="https://example.com/podcast/feed.xml"/>
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudSelect T="string" @bind-SelectedValues="_feedChannels" MultiSelection="true"
+                               Label="Channels" Margin="Margin.Dense">
+                        @foreach (ChannelViewModel channel in _channels)
+                        {
+                            <MudSelectItem T="string" Value="@channel.Number">
+                                @($"{channel.Number} - {channel.Name}")
+                            </MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="6" md="2">
+                    <MudNumericField T="int" @bind-Value="_feedPriority" Label="Priority" Min="0" Max="9"
+                                     Margin="Margin.Dense"/>
+                </MudItem>
+                <MudItem xs="6" md="2">
+                    <MudSelect T="string" @bind-Value="_feedStyle" Label="Style" Margin="Margin.Dense">
+                        <MudSelectItem T="string" Value="@("replace")">replace</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("duck")">duck</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="6" md="2">
+                    <MudNumericField T="int" @bind-Value="_feedDuckPercent" Label="Duck Bed %" Min="0" Max="100"
+                                     Margin="Margin.Dense"/>
+                </MudItem>
+                <MudItem xs="6" md="2">
+                    <MudNumericField T="int" @bind-Value="_feedTtl" Label="TTL (s)" Min="30"
+                                     Margin="Margin.Dense"/>
+                </MudItem>
+                <MudItem xs="6" md="2" Class="d-flex align-center">
+                    <MudSwitch T="bool" @bind-Value="_feedEnabled" Label="Enabled" Color="Color.Primary"/>
+                </MudItem>
+                <MudItem xs="6" md="2" Class="d-flex align-center">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.Save" OnClick="@SaveFeed">
+                        Save Feed
+                    </MudButton>
+                </MudItem>
+            </MudGrid>
+        </MudContainer>
+    </div>
+</MudForm>
+
+@code {
+    private CancellationTokenSource _cts;
+
+    private List<ChannelViewModel> _channels = [];
+    private List<WatchFolder> _folders = [];
+    private List<RssFeed> _feeds = [];
+
+    private string _folderName;
+    private string _folderPath;
+    private IEnumerable<string> _folderChannels = new List<string>();
+    private int _folderPriority = 1;
+    private string _folderStyle = "replace";
+    private int _folderDuckPercent = 30;
+    private int _folderTtl = 3600;
+    private bool _folderEnabled = true;
+
+    private string _feedName;
+    private string _feedUrl;
+    private IEnumerable<string> _feedChannels = new List<string>();
+    private int _feedPriority = 1;
+    private string _feedStyle = "replace";
+    private int _feedDuckPercent = 30;
+    private int _feedTtl = 3600;
+    private bool _feedEnabled = true;
+
+    public void Dispose()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _cts = new CancellationTokenSource();
+        CancellationToken token = _cts.Token;
+
+        List<ChannelViewModel> allChannels = await Mediator.Send(new GetAllChannels(), token);
+        _channels = allChannels
+            .Filter(c => c.SongVideoMode == ChannelSongVideoMode.AudioOnly)
+            .OrderBy(c => c.Number)
+            .ToList();
+
+        _folders = await LoadList<WatchFolder>(ConfigElementKey.WatchFolders, token);
+        _feeds = await LoadList<RssFeed>(ConfigElementKey.RssFeeds, token);
+    }
+
+    private async Task<List<T>> LoadList<T>(ConfigElementKey key, CancellationToken token)
+    {
+        Option<string> maybeJson = await ConfigElementRepository.GetValue<string>(key, token);
+        foreach (string json in maybeJson.Filter(j => !string.IsNullOrWhiteSpace(j)))
+        {
+            try
+            {
+                return JsonSerializer.Deserialize<List<T>>(json) ?? [];
+            }
+            catch
+            {
+                return [];
+            }
+        }
+
+        return [];
+    }
+
+    private Task SaveList<T>(ConfigElementKey key, List<T> list) =>
+        ConfigElementRepository.Upsert(key, JsonSerializer.Serialize(list), CancellationToken.None);
+
+    private void EditFolder(WatchFolder folder)
+    {
+        _folderName = folder.Name;
+        _folderPath = folder.Path;
+        _folderChannels = folder.Channels.ToList();
+        _folderPriority = folder.Priority;
+        _folderStyle = folder.Style;
+        _folderDuckPercent = folder.DuckPercent;
+        _folderTtl = folder.TtlSeconds;
+        _folderEnabled = folder.Enabled;
+    }
+
+    private async Task SaveFolder()
+    {
+        if (string.IsNullOrWhiteSpace(_folderName) || string.IsNullOrWhiteSpace(_folderPath))
+        {
+            Snackbar.Add("Name and path are required", Severity.Warning);
+            return;
+        }
+
+        var channels = _folderChannels.ToList();
+        if (channels.Count == 0)
+        {
+            Snackbar.Add("At least one channel is required", Severity.Warning);
+            return;
+        }
+
+        _folders.RemoveAll(f => string.Equals(f.Name, _folderName, StringComparison.OrdinalIgnoreCase));
+        _folders.Add(new WatchFolder(
+            _folderName,
+            _folderPath,
+            channels,
+            Math.Clamp(_folderPriority, 0, 9),
+            _folderStyle ?? "replace",
+            Math.Clamp(_folderDuckPercent, 0, 100),
+            Math.Max(_folderTtl, 30),
+            _folderEnabled));
+
+        await SaveList(ConfigElementKey.WatchFolders, _folders);
+        Snackbar.Add($"Saved watch folder {_folderName} (picked up within ~30s)", Severity.Success);
+    }
+
+    private async Task DeleteFolder(WatchFolder folder)
+    {
+        _folders.Remove(folder);
+        await SaveList(ConfigElementKey.WatchFolders, _folders);
+        Snackbar.Add($"Removed watch folder {folder.Name}", Severity.Success);
+    }
+
+    private void EditFeed(RssFeed feed)
+    {
+        _feedName = feed.Name;
+        _feedUrl = feed.Url;
+        _feedChannels = feed.Channels.ToList();
+        _feedPriority = feed.Priority;
+        _feedStyle = feed.Style;
+        _feedDuckPercent = feed.DuckPercent;
+        _feedTtl = feed.TtlSeconds;
+        _feedEnabled = feed.Enabled;
+    }
+
+    private async Task SaveFeed()
+    {
+        if (string.IsNullOrWhiteSpace(_feedName) || string.IsNullOrWhiteSpace(_feedUrl))
+        {
+            Snackbar.Add("Name and url are required", Severity.Warning);
+            return;
+        }
+
+        bool isHttp = Uri.TryCreate(_feedUrl, UriKind.Absolute, out Uri parsed) &&
+                      (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps);
+
+        if (!isHttp)
+        {
+            Snackbar.Add("Url must be http(s)", Severity.Warning);
+            return;
+        }
+
+        var channels = _feedChannels.ToList();
+        if (channels.Count == 0)
+        {
+            Snackbar.Add("At least one channel is required", Severity.Warning);
+            return;
+        }
+
+        _feeds.RemoveAll(f => string.Equals(f.Name, _feedName, StringComparison.OrdinalIgnoreCase));
+        _feeds.Add(new RssFeed(
+            _feedName,
+            _feedUrl,
+            channels,
+            Math.Clamp(_feedPriority, 0, 9),
+            _feedStyle ?? "replace",
+            Math.Clamp(_feedDuckPercent, 0, 100),
+            Math.Max(_feedTtl, 30),
+            _feedEnabled));
+
+        await SaveList(ConfigElementKey.RssFeeds, _feeds);
+        Snackbar.Add($"Saved rss feed {_feedName} (polled within ~5m)", Severity.Success);
+    }
+
+    private async Task DeleteFeed(RssFeed feed)
+    {
+        _feeds.Remove(feed);
+        await SaveList(ConfigElementKey.RssFeeds, _feeds);
+        Snackbar.Add($"Removed rss feed {feed.Name}", Severity.Success);
+    }
+
+}

@@ -875,6 +875,7 @@ public class Startup
 
         // run-once/blocking startup services
         services.AddHostedService<WatchFolderService>();
+        services.AddHostedService<RssFeedService>();
         services.AddHostedService<EndpointValidatorService>();
         services.AddHostedService<DatabaseMigratorService>();
         services.AddHostedService<DatabaseCleanerService>();
