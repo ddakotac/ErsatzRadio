@@ -8,6 +8,7 @@ using ErsatzTV.Core.Domain;
 using ErsatzTV.Core.Interfaces.FFmpeg;
 using ErsatzTV.Core.Interfaces.Repositories;
 using ErsatzTV.Core.Interfaces.Streaming;
+using ErsatzTV.Core.Interfaces.Tts;
 using ErsatzTV.Core.Interrupts;
 using LanguageExt;
 
@@ -77,6 +78,8 @@ public class RssFeedService : BackgroundService
         using IServiceScope scope = _serviceScopeFactory.CreateScope();
         IConfigElementRepository configRepository =
             scope.ServiceProvider.GetRequiredService<IConfigElementRepository>();
+        ITtsSynthesisService ttsSynthesisService =
+            scope.ServiceProvider.GetRequiredService<ITtsSynthesisService>();
 
         List<RssFeed> feeds = await LoadFeeds(configRepository, cancellationToken);
         if (feeds.Count == 0)
@@ -97,7 +100,7 @@ public class RssFeedService : BackgroundService
         {
             try
             {
-                await PollFeed(configRepository, feed, maybeFFprobePath, cancellationToken);
+                await PollFeed(configRepository, feed, maybeFFprobePath, ttsSynthesisService, cancellationToken);
             }
             catch (OperationCanceledException)
             {
@@ -114,6 +117,7 @@ public class RssFeedService : BackgroundService
         IConfigElementRepository configRepository,
         RssFeed feed,
         Option<string> maybeFFprobePath,
+        ITtsSynthesisService ttsSynthesisService,
         CancellationToken cancellationToken)
     {
         DateTimeOffset watermark = await GetWatermark(configRepository, feed.Name, cancellationToken);
@@ -153,6 +157,7 @@ public class RssFeedService : BackgroundService
                     episode.Title,
                     episode.EnclosureUrl,
                     maybeFFprobePath,
+                    ttsSynthesisService,
                     cancellationToken);
 
                 if (enqueued && pubDate > newWatermark)
@@ -176,6 +181,7 @@ public class RssFeedService : BackgroundService
         string title,
         string enclosureUrl,
         Option<string> maybeFFprobePath,
+        ITtsSynthesisService ttsSynthesisService,
         CancellationToken cancellationToken)
     {
         string extension = Path.GetExtension(new Uri(enclosureUrl).AbsolutePath);
@@ -246,51 +252,30 @@ public class RssFeedService : BackgroundService
                 ? InterruptStyle.Duck
                 : InterruptStyle.Replace;
 
-            var first = true;
-            foreach (string channelNumber in feed.Channels.Distinct())
-            {
-                string channelPath = downloadPath;
-                if (!first)
-                {
-                    channelPath = Path.Combine(
-                        FileSystemLayout.InterruptsFolder,
-                        $"rss-{Guid.NewGuid()}{extension}");
-
-                    File.Copy(downloadPath, channelPath);
-                }
-
-                first = false;
-
-                var item = new InterruptQueueItem
-                {
-                    Id = Guid.NewGuid(),
-                    ChannelNumber = channelNumber,
-                    Path = channelPath,
-                    Title = $"{feed.Name}: {title}",
-                    Priority = feed.Priority,
-                    EnqueuedAt = DateTimeOffset.Now,
-                    ExpiresAt = DateTimeOffset.Now.AddSeconds(feed.TtlSeconds),
-                    Duration = duration,
-                    DeleteFileWhenDone = true,
-                    Style = style,
-                    DuckBedVolume = Math.Clamp(feed.DuckPercent, 0, 100) / 100.0
-                };
-
-                _interruptService.Enqueue(item);
-
-                bool sessionActive = _ffmpegSegmenterService.IsActive(channelNumber);
-                _logger.LogInformation(
-                    "RSS feed {Name}: enqueued {Title} on channel {Channel} (priority {Priority}, {Style}); sessionActive={SessionActive}{Warning}",
-                    feed.Name,
-                    title,
-                    channelNumber,
-                    feed.Priority,
-                    style,
-                    sessionActive,
-                    sessionActive
-                        ? string.Empty
-                        : " - NOBODY IS LISTENING; the item will expire unless a session starts before its ttl");
-            }
+            await DeliveryDispatch.Dispatch(
+                "RSS feed",
+                feed.Name,
+                title,
+                downloadPath,
+                duration,
+                feed.Channels,
+                feed.Priority,
+                style,
+                Math.Clamp(feed.DuckPercent, 0, 100) / 100.0,
+                feed.TtlSeconds,
+                deleteContentWhenDone: true,
+                feed.IntroText,
+                feed.OutroText,
+                feed.TtsEndpoint,
+                feed.Voice,
+                feed.WebhookUrl,
+                _interruptService,
+                ttsSynthesisService,
+                _ffmpegSegmenterService,
+                _httpClientFactory,
+                (p, ct) => ProbeDuration(maybeFFprobePath, p, ct),
+                _logger,
+                cancellationToken);
         }
 
         return true;

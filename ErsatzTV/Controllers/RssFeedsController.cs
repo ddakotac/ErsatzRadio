@@ -63,6 +63,13 @@ public class RssFeedsController : ControllerBase
             return BadRequest(new { error = "duckPercent must be between 0 and 100" });
         }
 
+        if (!string.IsNullOrWhiteSpace(request.WebhookUrl) &&
+            !(Uri.TryCreate(request.WebhookUrl, UriKind.Absolute, out Uri webhook) &&
+              (webhook.Scheme == Uri.UriSchemeHttp || webhook.Scheme == Uri.UriSchemeHttps)))
+        {
+            return BadRequest(new { error = "webhookUrl must be http(s)" });
+        }
+
         var folder = new RssFeed(
             request.Name,
             request.Url,
@@ -71,7 +78,12 @@ public class RssFeedsController : ControllerBase
             (request.Style ?? "replace").ToLowerInvariant(),
             request.DuckPercent ?? 30,
             request.TtlSeconds ?? 3600,
-            request.Enabled ?? true);
+            request.Enabled ?? true,
+            request.IntroText ?? string.Empty,
+            request.OutroText ?? string.Empty,
+            request.TtsEndpoint ?? string.Empty,
+            request.Voice ?? string.Empty,
+            request.WebhookUrl ?? string.Empty);
 
         List<RssFeed> folders = await LoadFeeds(cancellationToken);
         folders.RemoveAll(f => string.Equals(f.Name, folder.Name, StringComparison.OrdinalIgnoreCase));
@@ -138,5 +150,10 @@ public class RssFeedsController : ControllerBase
         string Style,
         int? DuckPercent,
         int? TtlSeconds,
-        bool? Enabled);
+        bool? Enabled,
+        string IntroText,
+        string OutroText,
+        string TtsEndpoint,
+        string Voice,
+        string WebhookUrl);
 }

@@ -4,6 +4,7 @@
 @using ErsatzTV.Core.Domain
 @using ErsatzTV.Core.Interfaces.Repositories
 @using ErsatzTV.Core.Interrupts
+@using ErsatzTV.Core.Tts
 @implements IDisposable
 @inject IMediator Mediator
 @inject IConfigElementRepository ConfigElementRepository
@@ -88,6 +89,32 @@
                 </MudItem>
                 <MudItem xs="6" md="2" Class="d-flex align-center">
                     <MudSwitch T="bool" @bind-Value="_folderEnabled" Label="Enabled" Color="Color.Primary"/>
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudTextField @bind-Value="_folderIntroText" Label="Intro Announcement (optional)"
+                                  Margin="Margin.Dense"
+                                  Placeholder="We interrupt your regularly scheduled content for {title}"/>
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudTextField @bind-Value="_folderOutroText" Label="Outro Announcement (optional)"
+                                  Margin="Margin.Dense"
+                                  Placeholder="Now returning to your regularly scheduled content"/>
+                </MudItem>
+                <MudItem xs="6" md="2">
+                    <MudSelect T="string" @bind-Value="_folderTtsEndpoint" Label="TTS Endpoint" Margin="Margin.Dense"
+                               Clearable="true">
+                        @foreach (TtsEndpoint endpoint in _ttsEndpoints)
+                        {
+                            <MudSelectItem T="string" Value="@endpoint.Name">@endpoint.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="6" md="2">
+                    <MudTextField @bind-Value="_folderVoice" Label="Voice (optional)" Margin="Margin.Dense"/>
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudTextField @bind-Value="_folderWebhookUrl" Label="Webhook Url (optional)" Margin="Margin.Dense"
+                                  Placeholder="http://10.0.0.114:8123/api/webhook/eradio-delivery"/>
                 </MudItem>
                 <MudItem xs="6" md="2" Class="d-flex align-center">
                     <MudButton Variant="Variant.Filled" Color="Color.Primary"
@@ -176,6 +203,32 @@
                 <MudItem xs="6" md="2" Class="d-flex align-center">
                     <MudSwitch T="bool" @bind-Value="_feedEnabled" Label="Enabled" Color="Color.Primary"/>
                 </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudTextField @bind-Value="_feedIntroText" Label="Intro Announcement (optional)"
+                                  Margin="Margin.Dense"
+                                  Placeholder="We interrupt your regularly scheduled content for {title}"/>
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudTextField @bind-Value="_feedOutroText" Label="Outro Announcement (optional)"
+                                  Margin="Margin.Dense"
+                                  Placeholder="Now returning to your regularly scheduled content"/>
+                </MudItem>
+                <MudItem xs="6" md="2">
+                    <MudSelect T="string" @bind-Value="_feedTtsEndpoint" Label="TTS Endpoint" Margin="Margin.Dense"
+                               Clearable="true">
+                        @foreach (TtsEndpoint endpoint in _ttsEndpoints)
+                        {
+                            <MudSelectItem T="string" Value="@endpoint.Name">@endpoint.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="6" md="2">
+                    <MudTextField @bind-Value="_feedVoice" Label="Voice (optional)" Margin="Margin.Dense"/>
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudTextField @bind-Value="_feedWebhookUrl" Label="Webhook Url (optional)" Margin="Margin.Dense"
+                                  Placeholder="http://10.0.0.114:8123/api/webhook/eradio-delivery"/>
+                </MudItem>
                 <MudItem xs="6" md="2" Class="d-flex align-center">
                     <MudButton Variant="Variant.Filled" Color="Color.Primary"
                                StartIcon="@Icons.Material.Filled.Save" OnClick="@SaveFeed">
@@ -202,6 +255,11 @@
     private int _folderDuckPercent = 30;
     private int _folderTtl = 3600;
     private bool _folderEnabled = true;
+    private string _folderIntroText;
+    private string _folderOutroText;
+    private string _folderTtsEndpoint;
+    private string _folderVoice;
+    private string _folderWebhookUrl;
 
     private string _feedName;
     private string _feedUrl;
@@ -211,6 +269,13 @@
     private int _feedDuckPercent = 30;
     private int _feedTtl = 3600;
     private bool _feedEnabled = true;
+    private string _feedIntroText;
+    private string _feedOutroText;
+    private string _feedTtsEndpoint;
+    private string _feedVoice;
+    private string _feedWebhookUrl;
+
+    private List<TtsEndpoint> _ttsEndpoints = [];
 
     public void Dispose()
     {
@@ -233,6 +298,7 @@
 
         _folders = await LoadList<WatchFolder>(ConfigElementKey.WatchFolders, token);
         _feeds = await LoadList<RssFeed>(ConfigElementKey.RssFeeds, token);
+        _ttsEndpoints = await LoadList<TtsEndpoint>(ConfigElementKey.AnnouncerTtsEndpoints, token);
     }
 
     private async Task<List<T>> LoadList<T>(ConfigElementKey key, CancellationToken token)
@@ -266,6 +332,11 @@
         _folderDuckPercent = folder.DuckPercent;
         _folderTtl = folder.TtlSeconds;
         _folderEnabled = folder.Enabled;
+        _folderIntroText = folder.IntroText;
+        _folderOutroText = folder.OutroText;
+        _folderTtsEndpoint = string.IsNullOrWhiteSpace(folder.TtsEndpoint) ? null : folder.TtsEndpoint;
+        _folderVoice = folder.Voice;
+        _folderWebhookUrl = folder.WebhookUrl;
     }
 
     private async Task SaveFolder()
@@ -292,7 +363,12 @@
             _folderStyle ?? "replace",
             Math.Clamp(_folderDuckPercent, 0, 100),
             Math.Max(_folderTtl, 30),
-            _folderEnabled));
+            _folderEnabled,
+            _folderIntroText ?? string.Empty,
+            _folderOutroText ?? string.Empty,
+            _folderTtsEndpoint ?? string.Empty,
+            _folderVoice ?? string.Empty,
+            _folderWebhookUrl ?? string.Empty));
 
         await SaveList(ConfigElementKey.WatchFolders, _folders);
         Snackbar.Add($"Saved watch folder {_folderName} (picked up within ~30s)", Severity.Success);
@@ -315,6 +391,11 @@
         _feedDuckPercent = feed.DuckPercent;
         _feedTtl = feed.TtlSeconds;
         _feedEnabled = feed.Enabled;
+        _feedIntroText = feed.IntroText;
+        _feedOutroText = feed.OutroText;
+        _feedTtsEndpoint = string.IsNullOrWhiteSpace(feed.TtsEndpoint) ? null : feed.TtsEndpoint;
+        _feedVoice = feed.Voice;
+        _feedWebhookUrl = feed.WebhookUrl;
     }
 
     private async Task SaveFeed()
@@ -350,7 +431,12 @@
             _feedStyle ?? "replace",
             Math.Clamp(_feedDuckPercent, 0, 100),
             Math.Max(_feedTtl, 30),
-            _feedEnabled));
+            _feedEnabled,
+            _feedIntroText ?? string.Empty,
+            _feedOutroText ?? string.Empty,
+            _feedTtsEndpoint ?? string.Empty,
+            _feedVoice ?? string.Empty,
+            _feedWebhookUrl ?? string.Empty));
 
         await SaveList(ConfigElementKey.RssFeeds, _feeds);
         Snackbar.Add($"Saved rss feed {_feedName} (polled within ~5m)", Severity.Success);

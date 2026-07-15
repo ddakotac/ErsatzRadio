@@ -173,6 +173,53 @@ curl http://ohs:8409/api/rssfeeds
 curl -X DELETE http://ohs:8409/api/rssfeeds/s2
 ```
 
+### Delivery extras (both watch folders and rss feeds)
+
+**Intro/outro announcements**: optional `introText` and `outroText` templates are
+synthesized through the TTS endpoint registry and chained around the content -
+"We interrupt your regularly scheduled content for {title}" ... content ...
+"Now returning to your regularly scheduled content". Template variables:
+`{title}` (the item), `{name}` (the folder/feed name). Optional `ttsEndpoint`
+and `voice` select the announcer voice (default: first registered endpoint).
+Intro/outro always play replace-style; the content uses the configured style.
+
+**Webhook**: optional `webhookUrl` is POSTed on every delivery with JSON:
+
+```json
+{
+  "source": "Watch folder", "name": "news", "title": "The Wire - July 10, 2026",
+  "priority": 0, "style": "replace", "durationSeconds": 512.4,
+  "expiresAt": "2026-07-14T13:00:00-05:00",
+  "channels": [
+    {"channel": "1", "sessionActive": true, "streamUrl": "/iptv/channel/1.m3u8"}
+  ]
+}
+```
+
+Home Assistant example - auto-tune a player and preset volume when breaking
+news drops (webhook id `eradio-delivery`, url
+`http://ha:8123/api/webhook/eradio-delivery`):
+
+```yaml
+automation:
+  - alias: "ERadio breaking news"
+    triggers:
+      - trigger: webhook
+        webhook_id: eradio-delivery
+        allowed_methods: [POST]
+        local_only: true
+    actions:
+      - action: media_player.volume_set
+        target: {entity_id: media_player.kitchen}
+        data: {volume_level: 0.6}
+      - action: media_player.play_media
+        target: {entity_id: media_player.kitchen}
+        data:
+          media_content_type: music
+          media_content_id: >-
+            http://ohs:8409{{ trigger.json.channels[0].streamUrl }}
+```
+
 Watch folders and RSS feeds are also configurable in the UI: Settings > Watch
 Folders. Delivery enqueue logs include `sessionActive` - if the mapped channel
 has no live session, the log says so loudly and the item expires at its TTL

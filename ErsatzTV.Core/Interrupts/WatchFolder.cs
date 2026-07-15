@@ -12,4 +12,9 @@ public record WatchFolder(
     string Style = "replace",
     int DuckPercent = 30,
     int TtlSeconds = 3600,
-    bool Enabled = true);
+    bool Enabled = true,
+    string IntroText = "",
+    string OutroText = "",
+    string TtsEndpoint = "",
+    string Voice = "",
+    string WebhookUrl = "");

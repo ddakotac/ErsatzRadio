@@ -7,6 +7,7 @@ using ErsatzTV.Core.Domain;
 using ErsatzTV.Core.Interfaces.FFmpeg;
 using ErsatzTV.Core.Interfaces.Repositories;
 using ErsatzTV.Core.Interfaces.Streaming;
+using ErsatzTV.Core.Interfaces.Tts;
 using ErsatzTV.Core.Interrupts;
 using LanguageExt;
 
@@ -29,6 +30,7 @@ public class WatchFolderService : BackgroundService
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IChannelInterruptService _interruptService;
     private readonly IFFmpegSegmenterService _ffmpegSegmenterService;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<WatchFolderService> _logger;
 
     // path -> (size, seenAt) for the stability check
@@ -38,11 +40,13 @@ public class WatchFolderService : BackgroundService
         IServiceScopeFactory serviceScopeFactory,
         IChannelInterruptService interruptService,
         IFFmpegSegmenterService ffmpegSegmenterService,
+        IHttpClientFactory httpClientFactory,
         ILogger<WatchFolderService> logger)
     {
         _serviceScopeFactory = serviceScopeFactory;
         _interruptService = interruptService;
         _ffmpegSegmenterService = ffmpegSegmenterService;
+        _httpClientFactory = httpClientFactory;
         _logger = logger;
     }
 
@@ -79,6 +83,8 @@ public class WatchFolderService : BackgroundService
         using IServiceScope scope = _serviceScopeFactory.CreateScope();
         IConfigElementRepository configRepository =
             scope.ServiceProvider.GetRequiredService<IConfigElementRepository>();
+        ITtsSynthesisService ttsSynthesisService =
+            scope.ServiceProvider.GetRequiredService<ITtsSynthesisService>();
 
         List<WatchFolder> folders = await LoadFolders(configRepository, cancellationToken);
         if (folders.Count == 0)
@@ -151,7 +157,7 @@ public class WatchFolderService : BackgroundService
                 {
                     _pending.Remove(file);
 
-                    bool enqueued = await EnqueueFile(folder, file, maybeFFprobePath, cancellationToken);
+                    bool enqueued = await EnqueueFile(folder, file, maybeFFprobePath, ttsSynthesisService, cancellationToken);
                     if (enqueued && mtime > newWatermark)
                     {
                         newWatermark = mtime;
@@ -183,6 +189,7 @@ public class WatchFolderService : BackgroundService
         WatchFolder folder,
         string file,
         Option<string> maybeFFprobePath,
+        ITtsSynthesisService ttsSynthesisService,
         CancellationToken cancellationToken)
     {
         Option<TimeSpan> maybeDuration = await ProbeDuration(maybeFFprobePath, file, cancellationToken);
@@ -203,38 +210,30 @@ public class WatchFolderService : BackgroundService
                 ? InterruptStyle.Duck
                 : InterruptStyle.Replace;
 
-            foreach (string channelNumber in folder.Channels.Distinct())
-            {
-                var item = new InterruptQueueItem
-                {
-                    Id = Guid.NewGuid(),
-                    ChannelNumber = channelNumber,
-                    Path = file,
-                    Title = $"{folder.Name}: {Path.GetFileNameWithoutExtension(file)}",
-                    Priority = folder.Priority,
-                    EnqueuedAt = DateTimeOffset.Now,
-                    ExpiresAt = DateTimeOffset.Now.AddSeconds(folder.TtlSeconds),
-                    Duration = duration,
-                    DeleteFileWhenDone = false,
-                    Style = style,
-                    DuckBedVolume = Math.Clamp(folder.DuckPercent, 0, 100) / 100.0
-                };
-
-                _interruptService.Enqueue(item);
-
-                bool sessionActive = _ffmpegSegmenterService.IsActive(channelNumber);
-                _logger.LogInformation(
-                    "Watch folder {Name}: enqueued {File} on channel {Channel} (priority {Priority}, {Style}); sessionActive={SessionActive}{Warning}",
-                    folder.Name,
-                    Path.GetFileName(file),
-                    channelNumber,
-                    folder.Priority,
-                    style,
-                    sessionActive,
-                    sessionActive
-                        ? string.Empty
-                        : " - NOBODY IS LISTENING; the item will expire unless a session starts before its ttl");
-            }
+            await DeliveryDispatch.Dispatch(
+                "Watch folder",
+                folder.Name,
+                Path.GetFileNameWithoutExtension(file),
+                file,
+                duration,
+                folder.Channels,
+                folder.Priority,
+                style,
+                Math.Clamp(folder.DuckPercent, 0, 100) / 100.0,
+                folder.TtlSeconds,
+                deleteContentWhenDone: false,
+                folder.IntroText,
+                folder.OutroText,
+                folder.TtsEndpoint,
+                folder.Voice,
+                folder.WebhookUrl,
+                _interruptService,
+                ttsSynthesisService,
+                _ffmpegSegmenterService,
+                _httpClientFactory,
+                (p, ct) => ProbeDuration(maybeFFprobePath, p, ct),
+                _logger,
+                cancellationToken);
         }
 
         return true;
