@@ -528,3 +528,35 @@ docs: INTERRUPTS.md rss section + sessionActive troubleshooting note; README bul
 
 LIVE TESTS PENDING: fix the folder's channel mapping (or open a ch1 session) + re-touch; rss feed
 end-to-end vs a real podcast feed (S2 Underground candidate); ui page walkthrough.
+
+
+### Session 16 (2026-07-14): delivery extras - intro/outro tts + webhooks (branch feature/delivery-extras)
+COMPILE-VERIFIED (sqlite-first chained build after another OOM; app + scanner 0 errors). Session 15
+watch folder end-to-end CONFIRMED WORKING by dakota (channel fix + re-touch aired The Wire).
+
+DeliveryDispatch (ErsatzTV/Services, static): shared dispatch for watch folders + rss feeds:
+- INTRO/OUTRO TTS CHAINING: optional introText/outroText templates ({title},{name}) synthesized via
+  ITtsSynthesisService (optional per-source ttsEndpoint/voice; default = registry resolution);
+  enqueued as SEPARATE queue items [intro, content, outro] with same priority + millisecond-
+  incremented EnqueuedAt -> worker plays consecutive queue items BACK-TO-BACK (no engine changes;
+  the loop re-checks the queue after each interrupt transcode). intro/outro always Replace style;
+  content keeps its configured style; all three share the content's ExpiresAt.
+- per-channel file copies for anything DeleteFileWhenDone (intro/outro always; rss content) - the
+  broadcast delete-race lesson, centralized.
+- WEBHOOK: optional webhookUrl POSTed after enqueue (10s timeout, fire-and-forget, logged):
+  {source, name, title, priority, style, durationSeconds, expiresAt, channels: [{channel,
+  sessionActive, streamUrl: /iptv/channel/{n}.m3u8}]} - relative stream urls (eradio doesn't know
+  its external base; HA prefixes). use case: auto-tune players / preset volume on breaking news.
+- unified sessionActive NOBODY IS LISTENING logging moved into dispatch.
+
+Records WatchFolder + RssFeed gained IntroText/OutroText/TtsEndpoint/Voice/WebhookUrl - appended
+WITH DEFAULTS so existing stored json deserializes unchanged. Controllers: request records + pass-
+through + webhook url validation. Hosted services resolve SCOPED ITtsSynthesisService from the
+per-poll scope (hosted services are singletons). UI: five new fields on both forms incl. tts
+endpoint select fed from the announcer registry.
+
+docs: INTERRUPTS.md delivery-extras section with the webhook json shape + full HA automation
+example (webhook trigger -> volume_set + play_media with trigger.json.channels[0].streamUrl).
+
+LIVE TESTS PENDING: intro/outro chain on a touch-triggered delivery (listen for the
+back-to-back sequencing); webhook -> HA automation end-to-end; per-source voice.
