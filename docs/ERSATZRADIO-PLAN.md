@@ -592,3 +592,38 @@ DISCUSSED, NOT YET BUILT (next session candidate): "book as schedulable unit" - 
 collection of audiobooks without playlist play-all treats CHAPTERS as discrete units. Investigate
 ShuffleInOrder group-by semantics (groups=shows for tv; want groups=SEASONS for audiobook shows:
 shuffle books, chapters chronological within). Same for music: artist/album grouping levers.
+
+
+### Session 18 (2026-07-16): webhook lifecycle events + book/album scheduling units (branch feature/air-webhooks-book-units)
+COMPILE-VERIFIED (sqlite-first chain restarted twice - the sandbox kills detached builds BETWEEN
+TURNS; restart and poll within one turn; app + scanner 0 errors).
+
+Webhook lifecycle events (dakota's volume-boost automation - no more delay calibration):
+- InterruptQueueItem gained WebhookUrl (init, default ""); DeliveryDispatch sets it on the CONTENT
+  item only (not intro/outro - one airing per delivery)
+- InterruptWebhook (Core/Interrupts, static, shared static HttpClient 10s, fire-and-forget):
+  payload {event, channel, title, priority, style, durationSeconds, streamUrl}
+- fire points: replace-style "airing" before the interrupt process runs + "completed" on exit 0
+  (TranscodeInterrupt); duck "airing" where _duckToCleanUp is set (mix transcode about to run) +
+  "completed" at the next-loop cleanup (mix transcode finished); "expired" in the service's
+  TryDequeue purge; dispatch's enqueue-time POST gained event:"enqueued"
+- SEMANTIC NOTE: airing/completed are TRANSCODE moments - they LEAD the listener by the hls buffer
+  (~40-60s). documented; for volume automations the early boost is acceptable.
+- INTERRUPTS.md: four-event docs + event-driven HA automation (scene.create snapshot on airing,
+  scene.turn_on restore on completed/expired, mode: single)
+
+Book/album scheduling units (GroupIntoFakeCollections in MediaCollectionRepository - the ShuffleInOrder
+group builder):
+- episodes: seasons with NON-EMPTY SeasonMetadata.Title (= abs books; also named jellyfin seasons)
+  group by SEASON (negated seasonId keys - cannot collide with showId keys); untitled seasons group
+  by show as upstream. Season.SeasonMetadata was NOT included at the three episode-loading sites -
+  added (the 0013 lesson applied proactively).
+- songs: grouped by ALBUM ("{albumArtist}|{album}" key) instead of album artist - shuffle albums,
+  tracks in order. fake key ":album:".
+- ChronologicalMediaComparer: numeric-aware track compare ("2" before "10"; upstream string compare
+  broke unpadded track numbers).
+- README: scheduling section documenting the semantics.
+
+LIVE TESTS PENDING: webhook airing/completed/expired against a real HA automation; shuffle-in-order
+on a collection of books (expect: books shuffle, chapters in order); album shuffle on a music
+channel; verify existing playouts rebuild with the new grouping (playout reset may be needed).
