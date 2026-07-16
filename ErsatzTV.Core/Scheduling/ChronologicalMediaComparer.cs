@@ -126,6 +126,12 @@ internal class ChronologicalMediaComparer : IComparer<MediaItem>
 
         if (track1 != track2)
         {
+            // numeric-aware: "2" before "10" (unpadded track numbers are common)
+            if (int.TryParse(track1, out int t1) && int.TryParse(track2, out int t2))
+            {
+                return t1.CompareTo(t2);
+            }
+
             return string.Compare(track1, track2, StringComparison.Ordinal);
         }
 

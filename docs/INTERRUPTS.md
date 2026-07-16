@@ -196,29 +196,53 @@ Intro/outro always play replace-style; the content uses the configured style.
 }
 ```
 
-Home Assistant example - auto-tune a player and preset volume when breaking
-news drops (webhook id `eradio-delivery`, url
-`http://ha:8123/api/webhook/eradio-delivery`):
+**Lifecycle events**: the webhook fires FOUR event types, distinguished by the
+`event` field:
+
+- `enqueued` - at dispatch time (the full payload above, with the per-channel
+  array)
+- `airing` - the item's transcode is starting (single-channel payload:
+  `{event, channel, title, priority, style, durationSeconds, streamUrl}`)
+- `completed` - the item's transcode finished
+- `expired` - the ttl passed without airing (cancel any pending automation)
+
+`airing`/`completed` fire per channel at the actual transcode moments - no
+buffer guesswork or delay calibration needed on the automation side. (Note:
+"transcode moments" lead the listener's speakers by the HLS buffer, ~40-60s;
+for volume automation this is usually fine since the boost simply arrives a
+little early.)
+
+Home Assistant example - save volume, boost while airing, restore on
+completion (webhook id `eradio-delivery`):
 
 ```yaml
 automation:
-  - alias: "ERadio breaking news"
+  - alias: "ERadio delivery volume boost"
+    mode: single
     triggers:
       - trigger: webhook
         webhook_id: eradio-delivery
         allowed_methods: [POST]
         local_only: true
     actions:
-      - action: media_player.volume_set
-        target: {entity_id: media_player.kitchen}
-        data: {volume_level: 0.6}
-      - action: media_player.play_media
-        target: {entity_id: media_player.kitchen}
-        data:
-          media_content_type: music
-          media_content_id: >-
-            http://ohs:8409{{ trigger.json.channels[0].streamUrl }}
+      - choose:
+          - conditions: "{{ trigger.json.event == 'airing' }}"
+            sequence:
+              - action: scene.create
+                data:
+                  scene_id: eradio_pre_delivery
+                  snapshot_entities: [media_player.kitchen]
+              - action: media_player.volume_set
+                target: {entity_id: media_player.kitchen}
+                data: {volume_level: 0.65}
+          - conditions: "{{ trigger.json.event in ['completed', 'expired'] }}"
+            sequence:
+              - action: scene.turn_on
+                target: {entity_id: scene.eradio_pre_delivery}
 ```
+
+Auto-tune on enqueue (the original example) still works - filter on
+`trigger.json.event == 'enqueued'` and use `trigger.json.channels[0].streamUrl`.
 
 Watch folders and RSS feeds are also configurable in the UI: Settings > Watch
 Folders. Delivery enqueue logs include `sessionActive` - if the mapped channel

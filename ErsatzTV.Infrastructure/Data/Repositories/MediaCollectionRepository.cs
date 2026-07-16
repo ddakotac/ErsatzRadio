@@ -1086,7 +1086,19 @@ public class MediaCollectionRepository : IMediaCollectionRepository
         var showCollections = new Dictionary<int, List<MediaItem>>();
         foreach (Episode episode in items.OfType<Episode>())
         {
-            List<MediaItem> list = showCollections.TryGetValue(episode.Season.ShowId, out List<MediaItem> collection)
+            // seasons with a real title (audiobookshelf books, named seasons) are the
+            // schedulable unit: shuffle-in-order shuffles BOOKS and plays chapters
+            // chronologically within each. untitled seasons group by show as upstream.
+            bool seasonIsBook = Optional(episode.Season?.SeasonMetadata)
+                .Flatten()
+                .HeadOrNone()
+                .Map(sm => !string.IsNullOrWhiteSpace(sm.Title))
+                .IfNone(false);
+
+            // negated season ids cannot collide with show ids
+            int groupKey = seasonIsBook ? -episode.SeasonId : episode.Season.ShowId;
+
+            List<MediaItem> list = showCollections.TryGetValue(groupKey, out List<MediaItem> collection)
                 ? collection
                 : new List<MediaItem>();
 
@@ -1095,7 +1107,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
                 list.Add(episode);
             }
 
-            showCollections[episode.Season.ShowId] = list;
+            showCollections[groupKey] = list;
         }
 
         foreach ((int showId, List<MediaItem> list) in showCollections)
@@ -1139,28 +1151,31 @@ public class MediaCollectionRepository : IMediaCollectionRepository
                     false));
         }
 
-        var allArtists = items.OfType<Song>()
-            .SelectMany(s => s.SongMetadata)
-            .Map(sm => sm.AlbumArtists.HeadOrNone().Match(aa => aa, string.Empty))
-            .Distinct()
-            .ToList();
-
-        if (!allArtists.Contains(string.Empty))
-        {
-            allArtists.Add(string.Empty);
-        }
-
-        var songArtistCollections = new Dictionary<int, List<MediaItem>>();
+        // albums are the schedulable unit for songs: shuffle-in-order shuffles ALBUMS
+        // and plays tracks in order within each ("{albumArtist}|{album}" key; songs
+        // without album metadata form one loose group)
+        var albumKeys = new List<string>();
+        var songAlbumCollections = new Dictionary<int, List<MediaItem>>();
         foreach (Song song in items.OfType<Song>())
         {
-            string firstArtist = song.SongMetadata
+            string albumArtist = song.SongMetadata
                 .SelectMany(sm => sm.AlbumArtists)
                 .HeadOrNone()
                 .Match(aa => aa, string.Empty);
 
-            int key = allArtists.IndexOf(firstArtist);
+            string album = song.SongMetadata.HeadOrNone()
+                .Map(sm => sm.Album ?? string.Empty)
+                .IfNone(string.Empty);
 
-            List<MediaItem> list = songArtistCollections.TryGetValue(key, out List<MediaItem> collection)
+            string albumKey = $"{albumArtist}|{album}";
+            int key = albumKeys.IndexOf(albumKey);
+            if (key < 0)
+            {
+                albumKeys.Add(albumKey);
+                key = albumKeys.Count - 1;
+            }
+
+            List<MediaItem> list = songAlbumCollections.TryGetValue(key, out List<MediaItem> collection)
                 ? collection
                 : [];
 
@@ -1169,16 +1184,16 @@ public class MediaCollectionRepository : IMediaCollectionRepository
                 list.Add(song);
             }
 
-            songArtistCollections[key] = list;
+            songAlbumCollections[key] = list;
         }
 
-        foreach ((int index, List<MediaItem> list) in songArtistCollections)
+        foreach ((int index, List<MediaItem> list) in songAlbumCollections)
         {
             result.Add(
                 new CollectionWithItems(
                     id,
                     id,
-                    $"{fakeKey}:artist:{allArtists[index]}",
+                    $"{fakeKey}:album:{albumKeys[index]}",
                     list,
                     true,
                     PlaybackOrder.Chronological,
@@ -1428,6 +1443,8 @@ public class MediaCollectionRepository : IMediaCollectionRepository
             .Include(m => m.MediaVersions)
             .ThenInclude(mv => mv.MediaFiles)
             .Include(e => e.Season)
+            .ThenInclude(s => s.SeasonMetadata)
+            .Include(e => e.Season)
             .ThenInclude(s => s.Show)
             .ThenInclude(s => s.ShowMetadata)
             .Filter(e => episodeIds.Contains(e.Id))
@@ -1466,6 +1483,8 @@ public class MediaCollectionRepository : IMediaCollectionRepository
             .ThenInclude(mv => mv.Chapters)
             .Include(m => m.MediaVersions)
             .ThenInclude(mv => mv.MediaFiles)
+            .Include(e => e.Season)
+            .ThenInclude(s => s.SeasonMetadata)
             .Include(e => e.Season)
             .ThenInclude(s => s.Show)
             .ThenInclude(s => s.ShowMetadata)
@@ -1506,6 +1525,8 @@ public class MediaCollectionRepository : IMediaCollectionRepository
             .ThenInclude(mv => mv.Chapters)
             .Include(m => m.MediaVersions)
             .ThenInclude(mv => mv.MediaFiles)
+            .Include(e => e.Season)
+            .ThenInclude(s => s.SeasonMetadata)
             .Include(e => e.Season)
             .ThenInclude(s => s.Show)
             .ThenInclude(s => s.ShowMetadata)

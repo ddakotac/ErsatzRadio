@@ -263,6 +263,7 @@ public class HlsSessionWorker : IHlsSessionWorker
                 // clean up the previous duck overlay's temp file, if any
                 if (_duckToCleanUp is not null)
                 {
+                    InterruptWebhook.Fire(_duckToCleanUp.WebhookUrl, "completed", _duckToCleanUp, _logger);
                     _interruptQueue.CleanUpFile(_duckToCleanUp);
                     _duckToCleanUp = null;
                 }
@@ -597,6 +598,8 @@ public class HlsSessionWorker : IHlsSessionWorker
 
                 // temp file is deleted at the top of the next session loop iteration
                 _duckToCleanUp = consumedDuck;
+
+                InterruptWebhook.Fire(consumedDuck.WebhookUrl, "airing", consumedDuck, _logger);
             }
 
             // _logger.LogInformation("Request {@Request}", request);
@@ -883,6 +886,8 @@ public class HlsSessionWorker : IHlsSessionWorker
 
                 _logger.LogDebug("ffmpeg interrupt arguments {FFmpegArguments}", process.Arguments);
 
+                InterruptWebhook.Fire(item.WebhookUrl, "airing", item, _logger);
+
                 var stdErrBuffer = new StringBuilder();
 
                 try
@@ -908,6 +913,8 @@ public class HlsSessionWorker : IHlsSessionWorker
                             item.Id,
                             _channelNumber,
                             _transcodedUntil);
+
+                        InterruptWebhook.Fire(item.WebhookUrl, "completed", item, _logger);
 
                         return true;
                     }

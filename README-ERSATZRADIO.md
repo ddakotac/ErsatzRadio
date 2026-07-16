@@ -96,6 +96,14 @@ curl -X PUT http://host:8409/api/channels/1/announcer \
        "ttsEndpoint": "piper-main"}'
 ```
 
+## Scheduling audiobooks and albums
+
+`Shuffle In Order` treats **books** (seasons with real titles) and **albums** as
+the schedulable unit: books/albums shuffle, chapters/tracks play in order within
+each. Point a schedule item at a collection of books (or a playlist tag) with
+Shuffle In Order and it just works - no per-book playlists needed. Untitled TV
+seasons still group by show, exactly like upstream.
+
 ## Notes and limits
 
 - Interrupt latency is bounded below by the HLS buffer (~40-60s), even for

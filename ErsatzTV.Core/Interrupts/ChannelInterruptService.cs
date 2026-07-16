@@ -89,6 +89,7 @@ public class ChannelInterruptService : IChannelInterruptService
                 foreach (InterruptQueueItem item in expired)
                 {
                     CancelAirAtTimer(item.Id);
+                    InterruptWebhook.Fire(item.WebhookUrl, "expired", item, _logger);
                 }
 
                 Option<InterruptQueueItem> maybeNext = queue

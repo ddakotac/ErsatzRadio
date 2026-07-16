@@ -43,4 +43,11 @@ public record InterruptQueueItem
 
     /// <summary>Bed (scheduled content) volume while a duck-style item plays, 0..1.</summary>
     public double DuckBedVolume { get; init; } = 0.3;
+
+    /// <summary>
+    ///     When set, lifecycle webhooks fire to this url: "airing" when the item's
+    ///     transcode starts, "completed" when it finishes, "expired" if the ttl passes
+    ///     without airing.
+    /// </summary>
+    public string WebhookUrl { get; init; } = string.Empty;
 }

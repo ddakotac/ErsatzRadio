@@ -90,7 +90,8 @@ public static class DeliveryDispatch
                 contentDuration,
                 deleteContentWhenDone,
                 style,
-                duckBedVolume);
+                duckBedVolume,
+                webhookUrl);
 
             foreach ((string outroPath, TimeSpan outroDuration) in outro)
             {
@@ -154,7 +155,8 @@ public static class DeliveryDispatch
         TimeSpan duration,
         bool deleteFileWhenDone,
         InterruptStyle style,
-        double duckBedVolume) =>
+        double duckBedVolume,
+        string webhookUrl = "") =>
         interruptService.Enqueue(
             new InterruptQueueItem
             {
@@ -168,7 +170,8 @@ public static class DeliveryDispatch
                 Duration = duration,
                 DeleteFileWhenDone = deleteFileWhenDone,
                 Style = style,
-                DuckBedVolume = duckBedVolume
+                DuckBedVolume = duckBedVolume,
+                WebhookUrl = webhookUrl
             });
 
     private static async Task<Option<(string Path, TimeSpan Duration)>> Synthesize(
@@ -246,6 +249,7 @@ public static class DeliveryDispatch
         {
             var payload = new
             {
+                @event = "enqueued",
                 source,
                 name,
                 title,
