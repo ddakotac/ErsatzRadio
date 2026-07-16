@@ -23,6 +23,10 @@ namespace ErsatzTV.Services;
 public class RssFeedService : BackgroundService
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(5);
+
+    // podcast cdns 403 requests without a user-agent; mozilla prefix passes the
+    // common bot filters (cloudflare et al)
+    private const string UserAgent = "Mozilla/5.0 (compatible; ErsatzRadio/1.0; +https://github.com/ddakotac/ErsatzRadio)";
     private const int MaxItemsPerFeed = 10;
     private const long MaxEnclosureBytes = 512L * 1024 * 1024;
 
@@ -125,6 +129,7 @@ public class RssFeedService : BackgroundService
 
         HttpClient client = _httpClientFactory.CreateClient();
         client.Timeout = TimeSpan.FromSeconds(60);
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
 
         string xml = await client.GetStringAsync(feed.Url, cancellationToken);
         var doc = XDocument.Parse(xml);
@@ -198,6 +203,7 @@ public class RssFeedService : BackgroundService
         {
             HttpClient client = _httpClientFactory.CreateClient();
             client.Timeout = TimeSpan.FromMinutes(10);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
 
             using HttpResponseMessage response = await client.GetAsync(
                 enclosureUrl,
