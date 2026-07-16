@@ -33,7 +33,8 @@ public class SearchTelevisionSeasonsHandler(
                     sm.SeasonId,
                     sm.Season.Show.ShowMetadata.HeadOrNone().Match(s => s.Title, string.Empty),
                     sm.Year,
-                    sm.Season.SeasonNumber))
+                    sm.Season.SeasonNumber,
+                    sm.Title))
                 .OrderBy(s => s.Title)
                 .ThenBy(s => s.SeasonNumber)
                 .Map(ToNamedMediaItem)
@@ -45,14 +46,19 @@ public class SearchTelevisionSeasonsHandler(
 
     private static string ShowTitle(TelevisionSeason season)
     {
-        string title = season.Title ?? "???";
-        string year = season.Year.HasValue ? season.Year.Value.ToString(CultureInfo.InvariantCulture) : "???";
-        return $"{title} ({year})";
+        string title = string.IsNullOrWhiteSpace(season.Title) ? "Unknown" : season.Title;
+
+        // omit the year rather than showing (???)
+        return season.Year.HasValue
+            ? $"{title} ({season.Year.Value.ToString(CultureInfo.InvariantCulture)})"
+            : title;
     }
 
-    private static string SeasonTitle(TelevisionSeason season) => season.SeasonNumber == 0
-        ? "Specials"
-        : $"Season {season.SeasonNumber}";
+    // prefer a real season title (audiobookshelf book titles) over "Season N"
+    private static string SeasonTitle(TelevisionSeason season) =>
+        string.IsNullOrWhiteSpace(season.SeasonTitle)
+            ? season.SeasonNumber == 0 ? "Specials" : $"Season {season.SeasonNumber}"
+            : season.SeasonTitle;
 
-    public record TelevisionSeason(int Id, string Title, int? Year, int SeasonNumber);
+    public record TelevisionSeason(int Id, string Title, int? Year, int SeasonNumber, string SeasonTitle);
 }

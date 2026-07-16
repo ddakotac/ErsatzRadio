@@ -9,7 +9,14 @@ internal static class Mapper
         new(show.Id, show.ShowMetadata.HeadOrNone().Map(sm => $"{sm?.Title} ({sm?.Year})").IfNone("???"));
 
     internal static NamedMediaItemViewModel ProjectToViewModel(Season season) =>
-        new(season.Id, $"{ShowTitle(season)} - {SeasonDescription(season)}");
+        new(season.Id, $"{ShowTitle(season)} - {SeasonTitleOrNumber(season)}");
+
+    // prefer a real season title (audiobookshelf book titles) over "Season N"
+    private static string SeasonTitleOrNumber(Season season) =>
+        Optional(season.SeasonMetadata).Flatten().HeadOrNone()
+            .Map(sm => sm.Title)
+            .Filter(t => !string.IsNullOrWhiteSpace(t))
+            .IfNone(season.SeasonNumber == 0 ? "Specials" : $"Season {season.SeasonNumber}");
 
     internal static NamedMediaItemViewModel ProjectToViewModel(Artist artist) =>
         new(artist.Id, artist.ArtistMetadata.HeadOrNone().Match(am => am.Title, () => "???"));
@@ -54,8 +61,8 @@ internal static class Mapper
 
     private static string ShowTitle(Season season)
     {
-        var title = "???";
-        var year = "???";
+        var title = "Unknown";
+        string year = null;
 
         foreach (ShowMetadata show in season.Show.ShowMetadata.HeadOrNone())
         {
@@ -66,7 +73,8 @@ internal static class Mapper
             }
         }
 
-        return $"{title} ({year})";
+        // omit the year rather than showing (???) - audiobook authors have no year
+        return year is null ? title : $"{title} ({year})";
     }
 
     private static string SeasonDescription(Season season) =>

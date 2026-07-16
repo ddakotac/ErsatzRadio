@@ -429,11 +429,9 @@ public class AudiobookshelfApiClient : IAudiobookshelfApiClient
         try
         {
             string bookTitle = book.Media?.Metadata?.Title ?? "Audiobook";
+            // chapter title or "{book} - Part N" - NEVER filenames (audiobook rip
+            // filenames are junk and leak into announcements and displays)
             string title = chapterTitle;
-            if (string.IsNullOrWhiteSpace(title))
-            {
-                title = Path.GetFileNameWithoutExtension(track.Metadata?.Filename);
-            }
 
             if (string.IsNullOrWhiteSpace(title))
             {
@@ -727,7 +725,7 @@ public class AudiobookshelfApiClient : IAudiobookshelfApiClient
 
     // bump to force a one-time metadata refresh across all synced items
     // (v2: artwork added to shows/seasons)
-    private const string EtagVersion = "2";
+    private const string EtagVersion = "3";
 
     private static string ComputeEtag(params object[] parts)
     {
