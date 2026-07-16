@@ -560,3 +560,35 @@ example (webhook trigger -> volume_set + play_media with trigger.json.channels[0
 
 LIVE TESTS PENDING: intro/outro chain on a touch-triggered delivery (listen for the
 back-to-back sequencing); webhook -> HA automation end-to-end; per-source voice.
+
+
+### Session 17 (2026-07-15): book title fixes (branch fix/book-titles)
+COMPILE-VERIFIED (sqlite-first chain, app + scanner 0 errors; GOTCHA: nohup chain lost PATH once -
+exit 127 - the export must be in the SAME command as the nohup).
+
+Dakota reports: (a) announcer {title} = "random numbers" for audiobooks; (b) add-to-collection
+pickers show "Author (???) - Season xx" instead of book titles.
+
+Root cause (a): episode title fallback chain was chapterTitle -> RAW FILENAME -> "{book} - Part N";
+books without matching chapter metadata (useChapterTitles requires chapters.Count == tracks.Count)
+fell to filenames = audiobook rip junk. FIX: filename fallback REMOVED - chapterTitle or
+"{book} - Part N", never filenames. ABS EtagVersion bumped 2 -> 3 so existing episode titles
+resync on next scan (titles aren't in the etag fingerprint).
+
+Root cause (b): two display sites never got the prefer-season-title treatment (cards + Television
+mapper had it since earlier sessions):
+- MediaItems/Mapper.ProjectToViewModel(Season) (feeds add-to-collection pickers): now
+  "{Author} - {Book Title}" via null-safe SeasonTitleOrNumber; ShowTitle year "(???)" -> omitted
+  when missing (audiobook authors have no year)
+- SearchTelevisionSeasonsHandler: TelevisionSeason record gained SeasonTitle (it queries
+  SeasonMetadata rows - sm.Title was RIGHT THERE); label prefers it; (???) year omitted
+
+Announcer template vars (documented for dakota): songs {title} {artist} {album}; chapters {title}
+{book}/{season} {author}/{show}. Delivery intro/outro: {title} {name} only.
+
+DEPLOY NOTE: rescan ABS libraries after deploying (etag bump makes it a full episode refresh).
+
+DISCUSSED, NOT YET BUILT (next session candidate): "book as schedulable unit" - scheduling a
+collection of audiobooks without playlist play-all treats CHAPTERS as discrete units. Investigate
+ShuffleInOrder group-by semantics (groups=shows for tv; want groups=SEASONS for audiobook shows:
+shuffle books, chapters chronological within). Same for music: artist/album grouping levers.
