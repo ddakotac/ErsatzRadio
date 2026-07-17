@@ -627,3 +627,54 @@ group builder):
 LIVE TESTS PENDING: webhook airing/completed/expired against a real HA automation; shuffle-in-order
 on a collection of books (expect: books shuffle, chapters in order); album shuffle on a music
 channel; verify existing playouts rebuild with the new grouping (playout reset may be needed).
+
+
+### Session 18 addendum (2026-07-16): scheduling cookbook + boost-automation hardening
+- docs/SCHEDULING-COOKBOOK.md: 7 recipes (playlist rotation, album radio, audiobook
+  chronological/shuffle-in-order, day-parted news+music, talk/music alternation via Multiple+Count,
+  foreign-language channel with voice, dedicated alert channel) + playout-mode / playback-order
+  cheat tables with fork semantics called out. Linked from README.
+- HA boost automation hardened for dakota (docs conversation, not repo): scene.create persists
+  between runs (in-memory until HA restart) but OVERLAPPING deliveries re-snapshot the BOOSTED
+  volume - guard with input_boolean.eradio_boosted latch (snapshot only when off, clear on
+  completed/expired); mode: queued. Restart-orphaned boost: homeassistant.start trigger to clear.
+
+
+### Session 19 (2026-07-16): display titles round 2 + unified templates + live preview (branch fix/display-titles)
+COMPILE-VERIFIED (sqlite-first chain; app + scanner 0 errors; GOTCHA: CA1716 - 'template' is a
+reserved VB keyword banned as an interface member parameter name, same analyzer family as CA1711).
+
+Live validation this session (dakota): full rss chain aired on 3.1 via MASS->TVH (intro + episode +
+outro), webhooks firing, HA automations functioning. MASS URL-CACHING INCIDENT: a re-added station
+with a reused name kept the OLD prototype icecast url - delete + re-add under a NEW name fixed it.
+
+Display titles round 2 (playout detail + media info still shewed "J.K. Rowling - s02e17..."):
+- session 17 fixed pickers/search only; three more formatter sites found via grep for
+  SeasonNumber:00 - Playouts/Mapper, MediaItems/Mapper episode case, PlayoutBuilder.DisplayTitle
+- all three now render "{Author} - {Book}: {Chapter}" when the season has a real title (null-safe
+  Optional access); sXXeYY retained for untitled seasons
+- GetFuturePlayoutItemsByIdHandler ALREADY includes Season.SeasonMetadata - no query change needed
+
+Unified announcer template variables (dakota: "{x},{y} should read sensibly for any media type"):
+- cross-mapping in RenderTemplate: songs also fill {author}/{show}<-artist and {book}/{season}<-
+  album; episodes also fill {artist}<-author and {album}<-book. Any template now renders
+  reasonably for both songs and chapters. {name} confirmed delivery-intro/outro-only (folder/feed
+  name).
+
+Preview-from-live (dakota request):
+- IChannelAnnouncerService.RenderTemplateForCurrentItem(channel, announcementTemplate) - looks up
+  the playout item AT NOW (same include chain as AnnounceUpcomingItem), renders the template
+- preview endpoint accepts template+channel; when the channel is playing something supported the
+  LIVE render replaces the sample text; sample fallback otherwise
+- settings page passes template+channel on the preview url
+
+OPEN INVESTIGATION - audio hiccup at delivery seams: few seconds of silence when a chained
+interrupt queued (first occurrence), and a no-audio-return after dakota refreshed the playout MID-
+INTERRUPT (second occurrence; logs show tvh ts-wrapper broken pipe + reconnect at that moment,
+eradio session resumed normally - suspicion: tvh/mass side stall after reconnect, or playout
+rebuild interaction). NEXT SESSION: reproduce with the differential (are segments still being
+served after the seam? client vs server), review playout-rebuild-during-interrupt semantics.
+
+HA scene restore set volume to 1% (dakota report): scene.create snapshot of a MASS SYNC GROUP
+player captures unreliable group volume - recommended input_number-based capture/restore of the
+individual player volumes instead (deterministic).
