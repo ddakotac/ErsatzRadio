@@ -1505,6 +1505,20 @@ public class PlayoutBuilder : IPlayoutBuilder
             case Episode e:
                 string showTitle = e.Season.Show.ShowMetadata.HeadOrNone()
                     .Map(sm => $"{sm.Title} - ").IfNone(string.Empty);
+
+                // book seasons display "{Author} - {Book}: {Chapter}" instead of sXXeYY
+                string bookTitle = Optional(e.Season?.SeasonMetadata).Flatten().HeadOrNone()
+                    .Map(sm => sm.Title)
+                    .Filter(t => !string.IsNullOrWhiteSpace(t))
+                    .IfNone(string.Empty);
+
+                if (!string.IsNullOrWhiteSpace(bookTitle))
+                {
+                    return e.EpisodeMetadata.HeadOrNone()
+                        .Map(em => $"{showTitle}{bookTitle}: {em.Title}")
+                        .IfNone("[unknown episode]");
+                }
+
                 return e.EpisodeMetadata.HeadOrNone()
                     .Map(em => $"{showTitle}s{e.Season.SeasonNumber:00}e{em.EpisodeNumber:00} - {em.Title}")
                     .IfNone("[unknown episode]");

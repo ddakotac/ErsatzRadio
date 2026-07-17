@@ -94,6 +94,18 @@ internal static class Mapper
         var numbersString = $"e{string.Join('e', episodeNumbers.Map(n => $"{n:00}"))}";
         var titlesString = $"{string.Join('/', episodeTitles)}";
 
+        // seasons with real titles (audiobook books) display as
+        // "{Author} - {Book}: {Chapter}" instead of sXXeYY
+        string bookTitle = Optional(e.Season?.SeasonMetadata).Flatten().HeadOrNone()
+            .Map(sm => sm.Title)
+            .Filter(t => !string.IsNullOrWhiteSpace(t))
+            .IfNone(string.Empty);
+
+        if (!string.IsNullOrWhiteSpace(bookTitle))
+        {
+            return $"{showTitle}{bookTitle}: {titlesString}";
+        }
+
         return $"{showTitle}s{e.Season.SeasonNumber:00}{numbersString} - {titlesString}";
     }
 

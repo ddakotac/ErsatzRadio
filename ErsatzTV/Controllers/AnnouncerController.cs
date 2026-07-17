@@ -5,6 +5,7 @@ using ErsatzTV.Core.Interfaces.Tts;
 using ErsatzTV.Core.Tts;
 using LanguageExt;
 using MediatR;
+using ErsatzTV.Core.Interfaces.Streaming;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ErsatzTV.Controllers;
@@ -28,6 +29,7 @@ namespace ErsatzTV.Controllers;
 [ApiExplorerSettings(IgnoreApi = true)]
 public class AnnouncerController : ControllerBase
 {
+    private readonly IChannelAnnouncerService _announcerService;
     private readonly IMediator _mediator;
     private readonly IConfigElementRepository _configElementRepository;
     private readonly ITtsSynthesisService _ttsSynthesisService;
@@ -35,8 +37,10 @@ public class AnnouncerController : ControllerBase
     public AnnouncerController(
         IMediator mediator,
         IConfigElementRepository configElementRepository,
-        ITtsSynthesisService ttsSynthesisService)
+        ITtsSynthesisService ttsSynthesisService,
+        IChannelAnnouncerService announcerService)
     {
+        _announcerService = announcerService;
         _mediator = mediator;
         _configElementRepository = configElementRepository;
         _ttsSynthesisService = ttsSynthesisService;
@@ -191,8 +195,25 @@ public class AnnouncerController : ControllerBase
         [FromQuery] string text,
         [FromQuery] string endpoint,
         [FromQuery] string voice,
+        [FromQuery] string template,
+        [FromQuery] string channel,
         CancellationToken cancellationToken)
     {
+        // when the channel is actually playing something, preview against the LIVE
+        // item's metadata instead of the sample text
+        if (!string.IsNullOrWhiteSpace(template) && !string.IsNullOrWhiteSpace(channel))
+        {
+            Option<string> maybeLive = await _announcerService.RenderTemplateForCurrentItem(
+                channel,
+                template,
+                cancellationToken);
+
+            foreach (string live in maybeLive)
+            {
+                text = live;
+            }
+        }
+
         if (string.IsNullOrWhiteSpace(text))
         {
             return BadRequest(new { error = "text is required" });

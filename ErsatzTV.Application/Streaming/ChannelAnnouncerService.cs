@@ -196,6 +196,52 @@ public class ChannelAnnouncerService : IChannelAnnouncerService
         return (enabled, template, style, bedVolume, ttsEndpoint, voice);
     }
 
+    public async Task<Option<string>> RenderTemplateForCurrentItem(
+        string channelNumber,
+        string announcementTemplate,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(announcementTemplate))
+        {
+            return Option<string>.None;
+        }
+
+        await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        Option<Channel> maybeChannel = await dbContext.Channels
+            .AsNoTracking()
+            .SelectOneAsync(c => c.Number, c => c.Number == channelNumber, cancellationToken);
+
+        foreach (Channel channel in maybeChannel)
+        {
+            Option<PlayoutItem> maybeItem = await dbContext.PlayoutItems
+                .AsNoTracking()
+                .Include(pi => pi.MediaItem)
+                .ThenInclude(mi => (mi as Song).SongMetadata)
+                .Include(pi => pi.MediaItem)
+                .ThenInclude(mi => (mi as Episode).EpisodeMetadata)
+                .Include(pi => pi.MediaItem)
+                .ThenInclude(mi => (mi as Episode).Season)
+                .ThenInclude(s => s.SeasonMetadata)
+                .Include(pi => pi.MediaItem)
+                .ThenInclude(mi => (mi as Episode).Season)
+                .ThenInclude(s => s.Show)
+                .ThenInclude(sh => sh.ShowMetadata)
+                .ForChannelAndTime(channel.MirrorSourceChannelId ?? channel.Id, DateTimeOffset.Now);
+
+            foreach (PlayoutItem item in maybeItem)
+            {
+                string rendered = RenderTemplate(announcementTemplate, item.MediaItem);
+                if (!string.IsNullOrWhiteSpace(rendered))
+                {
+                    return rendered;
+                }
+            }
+        }
+
+        return Option<string>.None;
+    }
+
     private static string RenderTemplate(string template, MediaItem mediaItem)
     {
         string title = string.Empty;
@@ -214,6 +260,10 @@ public class ChannelAnnouncerService : IChannelAnnouncerService
                     album = sm.Album ?? string.Empty;
                 }
 
+                // cross-map so any template reads sensibly for any media type:
+                // {author}/{show} -> artist, {book}/{season} -> album
+                show = artist;
+                season = album;
                 break;
             case Episode episode:
                 foreach (EpisodeMetadata em in episode.EpisodeMetadata.HeadOrNone())
@@ -231,6 +281,9 @@ public class ChannelAnnouncerService : IChannelAnnouncerService
                     show = showMetadata.Title ?? string.Empty;
                 }
 
+                // cross-map: {artist} -> author/show, {album} -> book/season
+                artist = show;
+                album = season;
                 break;
             default:
                 return string.Empty;

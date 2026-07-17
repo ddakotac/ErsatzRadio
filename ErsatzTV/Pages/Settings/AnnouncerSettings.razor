@@ -280,7 +280,7 @@
             .Replace("{author}", "Judicator", StringComparison.OrdinalIgnoreCase)
             .Replace("{show}", "Judicator", StringComparison.OrdinalIgnoreCase);
 
-        _previewUrl = $"api/announcer/tts/preview?text={Uri.EscapeDataString(sample)}" +
+        _previewUrl = $"api/announcer/tts/preview?text={Uri.EscapeDataString(sample)}&template={Uri.EscapeDataString(_template ?? string.Empty)}&channel={Uri.EscapeDataString(_selectedChannelNumber ?? string.Empty)}" +
                       $"&endpoint={Uri.EscapeDataString(_ttsEndpoint ?? string.Empty)}" +
                       $"&voice={Uri.EscapeDataString(_voice ?? string.Empty)}" +
                       $"&cb={Guid.NewGuid():N}";
