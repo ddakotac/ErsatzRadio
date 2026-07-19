@@ -785,3 +785,23 @@ keep the id-redirect best-effort; local cache paths unchanged.
 Expected StreamUrl after deploy: https://{base}/artwork/posters/abs/items/{id}/cover?width=600 -
 directly servable (the proxy route fetches from abs server-side, so the client never needs abs
 reachability or auth).
+
+
+### Session 23 (2026-07-19): artwork url rooting fix (0030)
+COMPILE-VERIFIED (app + scanner 0 errors).
+
+0029 delivery saga resolved via FILE-DROP: patch context failed against dakota's tree twice (clean
+transfer the second time) - conclusion: an earlier paste-mangled-but-applied patch left their
+files subtly divergent. Shipped the six final-state files as a tar.gz (paste-proof, and overwrites
+any hidden damage); NEW TRANSFER RITUAL: download attachment + scp + sha256 check, no more
+nano-paste for patches.
+
+Then dakota's curl showed the remaining bug: StreamUrl = base + "abs/items/{id}/cover" - no
+/artwork/posters/ prefix, no leading slash. ROOT CAUSE: AudiobookshelfUrl.RelativeProxyForArtwork
+returns PREFIX-LESS paths ("abs/items/{id}/cover") intended for card-mapper contexts that supply
+the prefix; I trusted the helper without reading it. FIX (0030): build fully-rooted urls
+explicitly - /artwork/{thumbnails|posters}/abs/{remainder}?width=600 and
+/artwork/{...}/navidrome/{remainder}?size=600 per ArtworkKind, matching the ArtworkController
+proxy routes; local-path branch also unified on kindSegment.
+
+Expected StreamUrl: https://{base}/artwork/posters/abs/items/{id}/cover?width=600.
