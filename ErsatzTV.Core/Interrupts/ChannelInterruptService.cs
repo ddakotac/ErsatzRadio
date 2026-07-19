@@ -216,6 +216,19 @@ public class ChannelInterruptService : IChannelInterruptService
         return new HandlerRegistration(this, channelNumber);
     }
 
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _nowAiring = new();
+
+    public void SetNowAiring(string channelNumber, string title) =>
+        _nowAiring[channelNumber] = title ?? string.Empty;
+
+    public void ClearNowAiring(string channelNumber) =>
+        _nowAiring.TryRemove(channelNumber, out _);
+
+    public Option<string> GetNowAiring(string channelNumber) =>
+        _nowAiring.TryGetValue(channelNumber, out string title) && !string.IsNullOrWhiteSpace(title)
+            ? Option<string>.Some(title)
+            : Option<string>.None;
+
     public void CleanUpFile(InterruptQueueItem item)
     {
         if (!item.DeleteFileWhenDone)

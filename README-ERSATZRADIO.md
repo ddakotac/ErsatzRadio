@@ -96,6 +96,24 @@ curl -X PUT http://host:8409/api/channels/1/announcer \
        "ttsEndpoint": "piper-main"}'
 ```
 
+## Direct radio streams (ICY / now-playing metadata)
+
+Every channel is also available as a plain internet-radio stream with live
+now-playing titles (shoutcast/ICY metadata):
+
+```
+http://host:8409/radio/{channelNumber}.mp3
+```
+
+Players that support ICY (Music Assistant, VLC, squeezelite, most radio apps)
+show the current song/chapter as it plays - and when a delivery breaks in, the
+title flips to the interrupt ("S2 Underground: The Wire - ..."), then back.
+Titles come from the playout at wall-clock time; the airing interrupt
+overrides. One transcode per listener (192k mp3); the underlying HLS session
+starts on the first listener, so interrupts, announcer, and ducks all function.
+Use this url in Music Assistant directly for rich metadata; keep the MPEG-TS
+url for TVHeadend.
+
 ## Scheduling audiobooks and albums
 
 `Shuffle In Order` treats **books** (seasons with real titles) and **albums** as

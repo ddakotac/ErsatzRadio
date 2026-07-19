@@ -264,6 +264,7 @@ public class HlsSessionWorker : IHlsSessionWorker
                 if (_duckToCleanUp is not null)
                 {
                     InterruptWebhook.Fire(_duckToCleanUp.WebhookUrl, "completed", _duckToCleanUp, _logger);
+                    _interruptQueue.ClearNowAiring(_channelNumber);
                     _interruptQueue.CleanUpFile(_duckToCleanUp);
                     _duckToCleanUp = null;
                 }
@@ -600,6 +601,7 @@ public class HlsSessionWorker : IHlsSessionWorker
                 _duckToCleanUp = consumedDuck;
 
                 InterruptWebhook.Fire(consumedDuck.WebhookUrl, "airing", consumedDuck, _logger);
+                _interruptQueue.SetNowAiring(_channelNumber, consumedDuck.Title);
             }
 
             // _logger.LogInformation("Request {@Request}", request);
@@ -887,6 +889,7 @@ public class HlsSessionWorker : IHlsSessionWorker
                 _logger.LogDebug("ffmpeg interrupt arguments {FFmpegArguments}", process.Arguments);
 
                 InterruptWebhook.Fire(item.WebhookUrl, "airing", item, _logger);
+                _interruptQueue.SetNowAiring(_channelNumber, item.Title);
 
                 var stdErrBuffer = new StringBuilder();
 
@@ -915,6 +918,7 @@ public class HlsSessionWorker : IHlsSessionWorker
                             _transcodedUntil);
 
                         InterruptWebhook.Fire(item.WebhookUrl, "completed", item, _logger);
+                        _interruptQueue.ClearNowAiring(_channelNumber);
 
                         return true;
                     }
@@ -925,6 +929,8 @@ public class HlsSessionWorker : IHlsSessionWorker
                         commandResult.ExitCode,
                         stdErrBuffer.ToString(),
                         item.Id);
+
+                    _interruptQueue.ClearNowAiring(_channelNumber);
 
                     return true;
                 }

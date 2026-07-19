@@ -38,4 +38,13 @@ public interface IChannelInterruptService
 
     /// <summary>Deletes the item's temp file if it was uploaded through the injection api.</summary>
     void CleanUpFile(InterruptQueueItem item);
+
+    /// <summary>Track the interrupt title currently airing on a channel (for icy metadata).</summary>
+    void SetNowAiring(string channelNumber, string title);
+
+    /// <summary>Clear the now-airing interrupt title for a channel.</summary>
+    void ClearNowAiring(string channelNumber);
+
+    /// <summary>The interrupt title currently airing on a channel, if any.</summary>
+    Option<string> GetNowAiring(string channelNumber);
 }
