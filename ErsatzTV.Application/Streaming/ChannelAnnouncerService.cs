@@ -361,21 +361,22 @@ public class ChannelAnnouncerService : IChannelAnnouncerService
             return null;
         }
 
-        // scheme-prefixed paths use the same proxy translation as the card mappers
-        // (the generic /artwork/{id} redirect mangles them); local cache paths
-        // resolve to the final url directly (no redirect hop)
+        // scheme-prefixed paths map to the artwork proxy routes (the generic
+        // /artwork/{id} redirect mangles them; the RelativeProxyForArtwork helpers
+        // return prefix-less paths meant for card-mapper contexts) - build the
+        // fully-rooted url explicitly per kind
+        string kindSegment = best.ArtworkKind == ArtworkKind.Thumbnail ? "thumbnails" : "posters";
+
         if (best.Path?.StartsWith("abs://", StringComparison.OrdinalIgnoreCase) == true)
         {
-            return AudiobookshelfUrl.RelativeProxyForArtwork(best.Path)
-                .SetQueryParam("width", 600)
-                .ToString();
+            string remainder = best.Path["abs://".Length..];
+            return $"/artwork/{kindSegment}/abs/{remainder}?width=600";
         }
 
         if (best.Path?.StartsWith("navidrome://", StringComparison.OrdinalIgnoreCase) == true)
         {
-            return NavidromeUrl.RelativeProxyForArtwork(best.Path)
-                .SetQueryParam("size", 600)
-                .ToString();
+            string remainder = best.Path["navidrome://".Length..];
+            return $"/artwork/{kindSegment}/navidrome/{remainder}?size=600";
         }
 
         if (best.Path?.Contains("://", StringComparison.Ordinal) == true)
@@ -384,9 +385,7 @@ public class ChannelAnnouncerService : IChannelAnnouncerService
             return $"/artwork/{best.Id}";
         }
 
-        return best.ArtworkKind == ArtworkKind.Thumbnail
-            ? $"/artwork/thumbnails/{best.Path}"
-            : $"/artwork/posters/{best.Path}";
+        return $"/artwork/{kindSegment}/{best.Path}";
     }
 
     private static string RenderTemplate(string template, MediaItem mediaItem)
