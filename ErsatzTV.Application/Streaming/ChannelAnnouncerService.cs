@@ -242,6 +242,121 @@ public class ChannelAnnouncerService : IChannelAnnouncerService
         return Option<string>.None;
     }
 
+    public async Task<Option<NowPlayingInfo>> GetNowPlayingForCurrentItem(
+        string channelNumber,
+        CancellationToken cancellationToken)
+    {
+        await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        Option<Channel> maybeChannel = await dbContext.Channels
+            .AsNoTracking()
+            .SelectOneAsync(c => c.Number, c => c.Number == channelNumber, cancellationToken);
+
+        foreach (Channel channel in maybeChannel)
+        {
+            Option<PlayoutItem> maybeItem = await dbContext.PlayoutItems
+                .AsNoTracking()
+                .Include(pi => pi.MediaItem)
+                .ThenInclude(mi => (mi as Song).SongMetadata)
+                .ThenInclude(sm => sm.Artwork)
+                .Include(pi => pi.MediaItem)
+                .ThenInclude(mi => (mi as Episode).EpisodeMetadata)
+                .ThenInclude(em => em.Artwork)
+                .Include(pi => pi.MediaItem)
+                .ThenInclude(mi => (mi as Episode).Season)
+                .ThenInclude(s => s.SeasonMetadata)
+                .ThenInclude(sm => sm.Artwork)
+                .Include(pi => pi.MediaItem)
+                .ThenInclude(mi => (mi as Episode).Season)
+                .ThenInclude(s => s.Show)
+                .ThenInclude(sh => sh.ShowMetadata)
+                .ForChannelAndTime(channel.MirrorSourceChannelId ?? channel.Id, DateTimeOffset.Now);
+
+            foreach (PlayoutItem item in maybeItem)
+            {
+                switch (item.MediaItem)
+                {
+                    case Song song:
+                        foreach (SongMetadata sm in song.SongMetadata.HeadOrNone())
+                        {
+                            string artist = string.Join(", ", sm.Artists ?? []);
+                            string title = string.IsNullOrWhiteSpace(artist)
+                                ? sm.Title ?? string.Empty
+                                : $"{artist} - {sm.Title}";
+
+                            int? artworkId = PickArtwork(sm.Artwork);
+
+                            if (!string.IsNullOrWhiteSpace(title))
+                            {
+                                return new NowPlayingInfo(title, artworkId);
+                            }
+                        }
+
+                        break;
+                    case Episode episode:
+                        string chapter = episode.EpisodeMetadata.HeadOrNone()
+                            .Map(em => em.Title ?? string.Empty)
+                            .IfNone(string.Empty);
+
+                        string book = Optional(episode.Season?.SeasonMetadata).Flatten().HeadOrNone()
+                            .Map(sm => sm.Title ?? string.Empty)
+                            .IfNone(string.Empty);
+
+                        string author = Optional(episode.Season?.Show?.ShowMetadata).Flatten().HeadOrNone()
+                            .Map(sm => sm.Title ?? string.Empty)
+                            .IfNone(string.Empty);
+
+                        // "{author} - {book}: {chapter}" degrading gracefully as parts go missing
+                        string display = chapter;
+                        if (!string.IsNullOrWhiteSpace(book))
+                        {
+                            display = string.IsNullOrWhiteSpace(display) ? book : $"{book}: {display}";
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(author))
+                        {
+                            display = string.IsNullOrWhiteSpace(display) ? author : $"{author} - {display}";
+                        }
+
+                        // episode thumbnail, else the book cover (season poster/thumbnail)
+                        int? episodeArt = null;
+                        foreach (EpisodeMetadata em in episode.EpisodeMetadata.HeadOrNone())
+                        {
+                            episodeArt = PickArtwork(em.Artwork);
+                        }
+
+                        int? bookArt = null;
+                        foreach (SeasonMetadata seasonArtMetadata in Optional(episode.Season?.SeasonMetadata).Flatten().HeadOrNone())
+                        {
+                            bookArt = PickArtwork(seasonArtMetadata.Artwork);
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(display))
+                        {
+                            return new NowPlayingInfo(display, episodeArt ?? bookArt);
+                        }
+
+                        break;
+                }
+            }
+        }
+
+        return Option<NowPlayingInfo>.None;
+    }
+
+    private static int? PickArtwork(List<Artwork> artwork)
+    {
+        if (artwork is null || artwork.Count == 0)
+        {
+            return null;
+        }
+
+        Artwork best = artwork.FirstOrDefault(a => a.ArtworkKind == ArtworkKind.Thumbnail)
+                       ?? artwork.FirstOrDefault(a => a.ArtworkKind == ArtworkKind.Poster);
+
+        return best?.Id;
+    }
+
     private static string RenderTemplate(string template, MediaItem mediaItem)
     {
         string title = string.Empty;

@@ -132,9 +132,11 @@ public class RadioController : ControllerBase
 
             var buffer = new byte[8192];
             var bytesSinceMeta = 0;
-            string lastTitle = null;
+            string lastMeta = null;
             DateTimeOffset lastTitleCheck = DateTimeOffset.MinValue;
             string currentTitle = channelName;
+            string currentArtUrl = null;
+            string artBase = $"{Request.Scheme}://{Request.Host}";
 
             while (!cancellationToken.IsCancellationRequested)
             {
@@ -165,13 +167,19 @@ public class RadioController : ControllerBase
                         if (DateTimeOffset.Now - lastTitleCheck > TitleRefreshInterval)
                         {
                             lastTitleCheck = DateTimeOffset.Now;
-                            currentTitle = await ResolveTitle(channelNumber, channelName, cancellationToken);
+                            (currentTitle, currentArtUrl) = await ResolveNowPlaying(
+                                channelNumber,
+                                channelName,
+                                artBase,
+                                cancellationToken);
                         }
 
+                        string metaKey = $"{currentTitle}|{currentArtUrl}";
                         byte[] metaBlock = BuildMetadataBlock(
-                            currentTitle == lastTitle ? null : currentTitle);
+                            metaKey == lastMeta ? null : currentTitle,
+                            currentArtUrl);
 
-                        lastTitle = currentTitle;
+                        lastMeta = metaKey;
                         await output.WriteAsync(metaBlock, cancellationToken);
                     }
                 }
@@ -203,44 +211,45 @@ public class RadioController : ControllerBase
         }
     }
 
-    private async Task<string> ResolveTitle(
+    private async Task<(string Title, string ArtUrl)> ResolveNowPlaying(
         string channelNumber,
         string channelName,
+        string artBase,
         CancellationToken cancellationToken)
     {
         // an airing interrupt (delivery, tts, broadcast) overrides the schedule
         foreach (string airing in _interruptService.GetNowAiring(channelNumber))
         {
-            return airing;
+            return (airing, null);
         }
 
         try
         {
-            Option<string> maybeRendered = await _announcerService.RenderTemplateForCurrentItem(
+            Option<NowPlayingInfo> maybeInfo = await _announcerService.GetNowPlayingForCurrentItem(
                 channelNumber,
-                "{artist} - {title}",
                 cancellationToken);
 
-            foreach (string rendered in maybeRendered)
+            foreach (NowPlayingInfo info in maybeInfo)
             {
-                string cleaned = rendered.Trim().Trim('-').Trim();
-                if (!string.IsNullOrWhiteSpace(cleaned))
-                {
-                    return cleaned;
-                }
+                string artUrl = info.ArtworkId.HasValue
+                    ? $"{artBase}/artwork/{info.ArtworkId.Value}"
+                    : null;
+
+                return (info.Title, artUrl);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Failed to resolve now-playing title for channel {Channel}", channelNumber);
+            _logger.LogDebug(ex, "Failed to resolve now-playing for channel {Channel}", channelNumber);
         }
 
-        return channelName;
+        return (channelName, null);
     }
 
-    // icy metadata block: 1 length byte (len/16) + "StreamTitle='...';" null-padded
+    // icy metadata block: 1 length byte (len/16) + "StreamTitle='...';" (plus
+    // optional StreamUrl='...' - many players treat it as cover art) null-padded
     // to a multiple of 16. an empty block (single zero byte) means "no change".
-    private static byte[] BuildMetadataBlock(string title)
+    private static byte[] BuildMetadataBlock(string title, string artUrl = null)
     {
         if (string.IsNullOrWhiteSpace(title))
         {
@@ -254,7 +263,13 @@ public class RadioController : ControllerBase
             safe = safe[..480];
         }
 
-        byte[] text = Encoding.UTF8.GetBytes($"StreamTitle='{safe}';");
+        string meta = $"StreamTitle='{safe}';";
+        if (!string.IsNullOrWhiteSpace(artUrl))
+        {
+            meta += $"StreamUrl='{artUrl}';";
+        }
+
+        byte[] text = Encoding.UTF8.GetBytes(meta);
         int blocks = (text.Length + 15) / 16;
 
         var result = new byte[1 + blocks * 16];

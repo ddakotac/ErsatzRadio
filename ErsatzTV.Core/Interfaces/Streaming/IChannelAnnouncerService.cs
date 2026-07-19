@@ -18,4 +18,13 @@ public interface IChannelAnnouncerService
         string channelNumber,
         string announcementTemplate,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    ///     Now-playing info for the channel's current item, formatted per media type for
+    ///     icy radio metadata: songs "{artist} - {title}", chapters "{author} - {book}: {chapter}".
+    ///     ArtworkId (when present) resolves via /artwork/{id}.
+    /// </summary>
+    Task<Option<NowPlayingInfo>> GetNowPlayingForCurrentItem(
+        string channelNumber,
+        CancellationToken cancellationToken);
 }

@@ -106,10 +106,12 @@ http://host:8409/radio/{channelNumber}.mp3
 ```
 
 Players that support ICY (Music Assistant, VLC, squeezelite, most radio apps)
-show the current song/chapter as it plays - and when a delivery breaks in, the
+show the current media as it plays - songs as "{artist} - {title}", audiobook
+chapters as "{author} - {book}: {chapter}" - and when a delivery breaks in, the
 title flips to the interrupt ("S2 Underground: The Wire - ..."), then back.
-Titles come from the playout at wall-clock time; the airing interrupt
-overrides. One transcode per listener (192k mp3); the underlying HLS session
+Cover art rides along as StreamUrl (the item's thumbnail, or the book cover)
+for players that honor it. Titles come from the playout at wall-clock time;
+the airing interrupt overrides. One transcode per listener (192k mp3); the underlying HLS session
 starts on the first listener, so interrupts, announcer, and ducks all function.
 Use this url in Music Assistant directly for rich metadata; keep the MPEG-TS
 url for TVHeadend.
