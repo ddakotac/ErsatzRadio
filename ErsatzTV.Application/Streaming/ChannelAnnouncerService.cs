@@ -2,7 +2,9 @@ using System.Globalization;
 using CliWrap;
 using CliWrap.Buffered;
 using ErsatzTV.Core;
+using ErsatzTV.Core.Audiobookshelf;
 using ErsatzTV.Core.Domain;
+using ErsatzTV.Core.Navidrome;
 using ErsatzTV.Core.Domain.Filler;
 using ErsatzTV.Core.Interfaces.Repositories;
 using ErsatzTV.Core.Interfaces.Streaming;
@@ -359,11 +361,26 @@ public class ChannelAnnouncerService : IChannelAnnouncerService
             return null;
         }
 
-        // external-scanner paths (jellyfin://... etc.) need the id-redirect route;
-        // local cache paths resolve to the final url directly (no redirect hop -
-        // some art fetchers refuse redirects)
+        // scheme-prefixed paths use the same proxy translation as the card mappers
+        // (the generic /artwork/{id} redirect mangles them); local cache paths
+        // resolve to the final url directly (no redirect hop)
+        if (best.Path?.StartsWith("abs://", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return AudiobookshelfUrl.RelativeProxyForArtwork(best.Path)
+                .SetQueryParam("width", 600)
+                .ToString();
+        }
+
+        if (best.Path?.StartsWith("navidrome://", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return NavidromeUrl.RelativeProxyForArtwork(best.Path)
+                .SetQueryParam("size", 600)
+                .ToString();
+        }
+
         if (best.Path?.Contains("://", StringComparison.Ordinal) == true)
         {
+            // other external schemes (jellyfin/emby/plex): id-redirect as best effort
             return $"/artwork/{best.Id}";
         }
 
