@@ -678,3 +678,39 @@ served after the seam? client vs server), review playout-rebuild-during-interrup
 HA scene restore set volume to 1% (dakota report): scene.create snapshot of a MASS SYNC GROUP
 player captures unreliable group volume - recommended input_number-based capture/restore of the
 individual player volumes instead (deterministic).
+
+
+### Session 20 (2026-07-18): icy direct radio streams (branch feature/icy-radio)
+COMPILE-VERIFIED (fresh sandbox: fs reset, re-cloned from the github mirror, reinstalled dotnet 10
+via dot.net/v1/dotnet-install.sh to /usr/local/dotnet; sqlite-first chain; app + scanner 0 errors;
+one CA1305 invariant-culture fix).
+
+Motivation (dakota): "some internet radio shews the media playing" - MASS logs from the url-caching
+incident proved it parses ICY natively. This un-parks the session-13 icecast/direct-mp3 item with
+its killer justification.
+
+RadioController - GET /radio/{channelNumber}.mp3:
+- one ffmpeg per listener wrapping the internal hls session (same
+  localhost:{port}/iptv/channel/{n}.m3u8?mode=segmenter source as the ts wrapper -> session starts
+  on first listener, interrupts/announcer/ducks all function), transcoding to 192k 44.1k mp3 on
+  pipe:1, System.Diagnostics.Process with stdout pull-loop + Kill(entireProcessTree) on disconnect
+- ICY protocol: clients sending Icy-MetaData: 1 get icy-metaint 16000 + metadata blocks (1 length
+  byte = len/16 + StreamTitle='...'; null-padded to 16-byte multiple; empty block byte 0 = no
+  change; quotes/semicolons sanitized; 480-char cap). non-icy clients get clean mp3. icy-name =
+  channel name.
+- title resolution (5s memo): NOW-AIRING INTERRUPT overrides -> RenderTemplateForCurrentItem
+  ("{artist} - {title}", the session-19 live-preview plumbing reused verbatim) -> channel name
+  fallback. wall-clock playout lookup = what listeners hear (hls timeline = wall time), so no
+  transcode-lead on scheduled titles; interrupt titles lead by the buffer like the webhooks
+  (documented).
+
+Now-airing tracking (the missing piece): IChannelInterruptService gained SetNowAiring/
+ClearNowAiring/GetNowAiring (ConcurrentDictionary); worker sets on replace-airing + duck-attach,
+clears on completed/duck-cleanup AND the interrupt-failure drop path (title must not stick).
+
+README: direct-stream section - MASS uses /radio/{n}.mp3 for metadata; TVH keeps the TS mux.
+
+LIVE TESTS PENDING: MASS station pointed at /radio/3.1.mp3 - expect live chapter titles flipping to
+the delivery title mid-broadcast; vlc/curl icy sanity check
+(curl -H "Icy-MetaData: 1" -sv http://calliope.lan:8499/radio/3.1.mp3 | head -c 100000 > /dev/null
+shows icy headers); multi-listener behavior.
