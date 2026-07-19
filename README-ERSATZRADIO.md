@@ -110,7 +110,14 @@ show the current media as it plays - songs as "{artist} - {title}", audiobook
 chapters as "{author} - {book}: {chapter}" - and when a delivery breaks in, the
 title flips to the interrupt ("S2 Underground: The Wire - ..."), then back.
 Cover art rides along as StreamUrl (the item's thumbnail, or the book cover)
-for players that honor it. Titles come from the playout at wall-clock time;
+for players that honor it. If your player's UI is https, the art url must be
+https too (browser mixed-content blocking) - set the base explicitly:
+
+```bash
+curl -X PUT http://host:8409/api/radio/settings \
+  -H "Content-Type: application/json" \
+  -d '{"artworkBaseUrl": "https://eradio.example.com"}'
+``` Titles come from the playout at wall-clock time;
 the airing interrupt overrides. One transcode per listener (192k mp3); the underlying HLS session
 starts on the first listener, so interrupts, announcer, and ducks all function.
 Use this url in Music Assistant directly for rich metadata; keep the MPEG-TS

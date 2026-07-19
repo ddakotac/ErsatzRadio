@@ -22,6 +22,7 @@ public class ConfigElementKey
     public static ConfigElementKey WatchFolderWatermark(string folderName) => new($"watchfolders.watermark.{folderName}");
     public static ConfigElementKey RssFeeds => new("rssfeeds.list");
     public static ConfigElementKey RssFeedWatermark(string feedName) => new($"rssfeeds.watermark.{feedName}");
+    public static ConfigElementKey RadioArtworkBaseUrl => new("radio.artwork_base_url");
     public static ConfigElementKey AnnouncerEnabled(string channelNumber) => new($"announcer.{channelNumber}.enabled");
     public static ConfigElementKey AnnouncerTemplate(string channelNumber) => new($"announcer.{channelNumber}.template");
     public static ConfigElementKey AnnouncerStyle(string channelNumber) => new($"announcer.{channelNumber}.style");

@@ -136,7 +136,17 @@ public class RadioController : ControllerBase
             DateTimeOffset lastTitleCheck = DateTimeOffset.MinValue;
             string currentTitle = channelName;
             string currentArtUrl = null;
-            string artBase = $"{Request.Scheme}://{Request.Host}";
+
+            // https MASS ui + http art = browser mixed-content block (blank square);
+            // set radio.artwork_base_url to a proxied https host when needed
+            Option<string> maybeBase = await _configElementRepository.GetValue<string>(
+                ConfigElementKey.RadioArtworkBaseUrl,
+                cancellationToken);
+
+            string artBase = maybeBase
+                .Filter(b => !string.IsNullOrWhiteSpace(b))
+                .Map(b => b.TrimEnd('/'))
+                .IfNone($"{Request.Scheme}://{Request.Host}");
 
             while (!cancellationToken.IsCancellationRequested)
             {
@@ -211,6 +221,42 @@ public class RadioController : ControllerBase
         }
     }
 
+    // GET/PUT /api/radio/settings - artworkBaseUrl override for the icy StreamUrl
+    // (needed when players/browsers require https art; point at your reverse proxy)
+    [HttpGet("api/radio/settings")]
+    public async Task<IActionResult> GetSettings(CancellationToken cancellationToken)
+    {
+        Option<string> maybeBase = await _configElementRepository.GetValue<string>(
+            ConfigElementKey.RadioArtworkBaseUrl,
+            cancellationToken);
+
+        return Ok(new { artworkBaseUrl = maybeBase.IfNone(string.Empty) });
+    }
+
+    [HttpPut("api/radio/settings")]
+    public async Task<IActionResult> PutSettings(
+        [FromBody] RadioSettingsRequest request,
+        CancellationToken cancellationToken)
+    {
+        string url = request?.ArtworkBaseUrl?.Trim() ?? string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(url) &&
+            !(Uri.TryCreate(url, UriKind.Absolute, out Uri parsed) &&
+              (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps)))
+        {
+            return BadRequest(new { error = "artworkBaseUrl must be an absolute http(s) url (or empty to clear)" });
+        }
+
+        await _configElementRepository.Upsert(
+            ConfigElementKey.RadioArtworkBaseUrl,
+            url,
+            cancellationToken);
+
+        return Ok(new { artworkBaseUrl = url });
+    }
+
+    public record RadioSettingsRequest(string ArtworkBaseUrl);
+
     private async Task<(string Title, string ArtUrl)> ResolveNowPlaying(
         string channelNumber,
         string channelName,
@@ -231,9 +277,9 @@ public class RadioController : ControllerBase
 
             foreach (NowPlayingInfo info in maybeInfo)
             {
-                string artUrl = info.ArtworkId.HasValue
-                    ? $"{artBase}/artwork/{info.ArtworkId.Value}"
-                    : null;
+                string artUrl = string.IsNullOrWhiteSpace(info.ArtworkRelativeUrl)
+                    ? null
+                    : $"{artBase}{info.ArtworkRelativeUrl}";
 
                 return (info.Title, artUrl);
             }

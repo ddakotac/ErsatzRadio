@@ -22,7 +22,7 @@ public interface IChannelAnnouncerService
     /// <summary>
     ///     Now-playing info for the channel's current item, formatted per media type for
     ///     icy radio metadata: songs "{artist} - {title}", chapters "{author} - {book}: {chapter}".
-    ///     ArtworkId (when present) resolves via /artwork/{id}.
+    ///     ArtworkRelativeUrl (when present) is the final artwork path (no redirect).
     /// </summary>
     Task<Option<NowPlayingInfo>> GetNowPlayingForCurrentItem(
         string channelNumber,

@@ -284,11 +284,11 @@ public class ChannelAnnouncerService : IChannelAnnouncerService
                                 ? sm.Title ?? string.Empty
                                 : $"{artist} - {sm.Title}";
 
-                            int? artworkId = PickArtwork(sm.Artwork);
+                            string artworkUrl = PickArtwork(sm.Artwork);
 
                             if (!string.IsNullOrWhiteSpace(title))
                             {
-                                return new NowPlayingInfo(title, artworkId);
+                                return new NowPlayingInfo(title, artworkUrl);
                             }
                         }
 
@@ -319,13 +319,13 @@ public class ChannelAnnouncerService : IChannelAnnouncerService
                         }
 
                         // episode thumbnail, else the book cover (season poster/thumbnail)
-                        int? episodeArt = null;
+                        string episodeArt = null;
                         foreach (EpisodeMetadata em in episode.EpisodeMetadata.HeadOrNone())
                         {
                             episodeArt = PickArtwork(em.Artwork);
                         }
 
-                        int? bookArt = null;
+                        string bookArt = null;
                         foreach (SeasonMetadata seasonArtMetadata in Optional(episode.Season?.SeasonMetadata).Flatten().HeadOrNone())
                         {
                             bookArt = PickArtwork(seasonArtMetadata.Artwork);
@@ -344,7 +344,7 @@ public class ChannelAnnouncerService : IChannelAnnouncerService
         return Option<NowPlayingInfo>.None;
     }
 
-    private static int? PickArtwork(List<Artwork> artwork)
+    private static string PickArtwork(List<Artwork> artwork)
     {
         if (artwork is null || artwork.Count == 0)
         {
@@ -354,7 +354,22 @@ public class ChannelAnnouncerService : IChannelAnnouncerService
         Artwork best = artwork.FirstOrDefault(a => a.ArtworkKind == ArtworkKind.Thumbnail)
                        ?? artwork.FirstOrDefault(a => a.ArtworkKind == ArtworkKind.Poster);
 
-        return best?.Id;
+        if (best is null)
+        {
+            return null;
+        }
+
+        // external-scanner paths (jellyfin://... etc.) need the id-redirect route;
+        // local cache paths resolve to the final url directly (no redirect hop -
+        // some art fetchers refuse redirects)
+        if (best.Path?.Contains("://", StringComparison.Ordinal) == true)
+        {
+            return $"/artwork/{best.Id}";
+        }
+
+        return best.ArtworkKind == ArtworkKind.Thumbnail
+            ? $"/artwork/thumbnails/{best.Path}"
+            : $"/artwork/posters/{best.Path}";
     }
 
     private static string RenderTemplate(string template, MediaItem mediaItem)
