@@ -768,3 +768,20 @@ NEXT if art STILL absent after deploy + base-url set + corrected curl shows no S
 scanner artwork attach investigation (do episode/season metadata rows carry Artwork for abs
 content? media cards show covers, so season art should exist - verify the now-playing query's
 includes populate).
+
+
+### Session 22 addendum: abs artwork proxy translation (same branch, amended into 0029)
+Dakota's corrected-curl result: StreamUrl WAS being sent - as /artwork/20888 (the id-redirect
+form), which per PickArtwork means the artwork Path contains :// - ROOT CAUSE: abs covers are
+stored as abs://items/{id}/cover, translated ONLY by the card mappers
+(AudiobookshelfUrl.RelativeProxyForArtwork -> /artwork/posters/abs/... proxy routes); the generic
+/artwork/{id} redirect concatenates the raw scheme path into garbage -> MASS fetch fails -> blank/
+logo.
+
+Fix: PickArtwork now applies the SAME proxy translation as the card mappers - abs:// via
+AudiobookshelfUrl (width=600), navidrome:// via NavidromeUrl (size=600); other external schemes
+keep the id-redirect best-effort; local cache paths unchanged.
+
+Expected StreamUrl after deploy: https://{base}/artwork/posters/abs/items/{id}/cover?width=600 -
+directly servable (the proxy route fetches from abs server-side, so the client never needs abs
+reachability or auth).
