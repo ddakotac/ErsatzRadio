@@ -740,3 +740,31 @@ record {Title, ArtworkId}):
 LIVE TESTS PENDING: MASS display of "{book}: {chapter}" title; whether MASS honors StreamUrl art
 (if not: acceptable - titles are the main win; MASS's own artist/title enrichment may fetch art
 for known MUSIC regardless).
+
+
+### Session 22 (2026-07-19): icy artwork url fixes (branch fix/icy-artwork-url)
+COMPILE-VERIFIED (sqlite-first chain, app + scanner 0 errors; NOTE: this build chain SURVIVED a
+turn boundary for once).
+
+Dakota's live test after 0028: titles correct ("{author}" artist + "{book}: {chapter}" title in
+MASS), artwork BLANK (worse than the station icon - MASS likely adopted StreamUrl then failed to
+load it). Diagnosis suspects: (1) mixed content - MASS ui is https://music.outremer.quest, art url
+was request-derived http://calliope.lan:8499 - browsers block http images on https pages; (2) the
+/artwork/{id} REDIRECT hop (some art fetchers refuse redirects). ALSO: my diagnostic curl HUNG -
+endless stream + grep with no match = no StreamUrl sent at all is a live possibility (art rows
+null for abs episodes/seasons); corrected curl uses --max-time + head -c byte cap. Pending
+dakota's rerun to distinguish.
+
+Fixes (0029):
+- NowPlayingInfo carries ArtworkRelativeUrl (kind-resolved FINAL path: /artwork/thumbnails/{path}
+  or /artwork/posters/{path}; external-scanner paths containing :// fall back to the /artwork/{id}
+  redirect route) - no redirect hop for local cache art
+- radio.artwork_base_url config element: overrides the request-derived scheme+host for StreamUrl
+  (request-derived is also wrong behind a tls-terminating proxy - kestrel sees http). GET/PUT
+  /api/radio/settings {artworkBaseUrl} with http(s) validation, empty clears.
+- README: mixed-content note + settings curl.
+
+NEXT if art STILL absent after deploy + base-url set + corrected curl shows no StreamUrl: abs
+scanner artwork attach investigation (do episode/season metadata rows carry Artwork for abs
+content? media cards show covers, so season art should exist - verify the now-playing query's
+includes populate).
