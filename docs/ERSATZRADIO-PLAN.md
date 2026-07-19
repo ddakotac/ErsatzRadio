@@ -714,3 +714,29 @@ LIVE TESTS PENDING: MASS station pointed at /radio/3.1.mp3 - expect live chapter
 the delivery title mid-broadcast; vlc/curl icy sanity check
 (curl -H "Icy-MetaData: 1" -sv http://calliope.lan:8499/radio/3.1.mp3 | head -c 100000 > /dev/null
 shows icy headers); multi-listener behavior.
+
+
+### Session 21 (2026-07-19): icy rich metadata - per-type titles + cover art (branch feature/icy-rich-metadata)
+COMPILE-VERIFIED (app + scanner 0 errors; GOTCHAS: LanguageExt Option<int?> gymnastics
+(Bind+IfNoneUnsafe) fail CS1503 - use the foreach-over-Option idiom; CA1859 wants List<> not
+ICollection<> params).
+
+Dakota's live icy validation (screenshot): stream + titles working in MASS, but chapters showed
+only "author - chapter" (MASS splits StreamTitle on the FIRST ' - ' into artist/title; my
+'{artist} - {title}' template never included the book), and artwork was the manual station icon.
+
+Per-type now-playing (GetNowPlayingForCurrentItem on IChannelAnnouncerService, NowPlayingInfo
+record {Title, ArtworkId}):
+- songs: "{artist} - {title}"; chapters: "{author} - {book}: {chapter}" with graceful degradation
+  as parts go missing -> MASS displays artist=author, title="{book}: {chapter}"
+- artwork: metadata Artwork includes added to the now-playing query (song thumbnail; episode
+  thumbnail else season/book cover; Thumbnail kind preferred over Poster); resolved via the
+  kind-redirecting /artwork/{id} endpoint
+- RadioController: StreamUrl='{scheme}://{host}/artwork/{id}' rides in the icy metadata block
+  (many players treat StreamUrl as cover art; harmless where ignored - MASS support to be
+  live-verified, station icon remains the fallback); metadata-change detection keyed on
+  title+art; interrupt override path unchanged (no art for interrupts v1)
+
+LIVE TESTS PENDING: MASS display of "{book}: {chapter}" title; whether MASS honors StreamUrl art
+(if not: acceptable - titles are the main win; MASS's own artist/title enrichment may fetch art
+for known MUSIC regardless).
