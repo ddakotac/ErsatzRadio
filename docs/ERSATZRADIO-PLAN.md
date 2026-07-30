@@ -805,3 +805,43 @@ explicitly - /artwork/{thumbnails|posters}/abs/{remainder}?width=600 and
 proxy routes; local-path branch also unified on kindSegment.
 
 Expected StreamUrl: https://{base}/artwork/posters/abs/items/{id}/cover?width=600.
+
+
+### Session 24 (2026-07-20): sync-group-friendly stream tuning (branch feature/sync-friendly-stream)
+COMPILE-VERIFIED (app 0 errors).
+
+ICY ARTWORK VERDICT (closes the 0027-0030 arc): dakota's curls proved the server side complete -
+rooted https StreamUrl + 200 image/jpeg 43423 bytes on fetch - and MASS still shows the station
+icon. CONCLUSION: MASS does not consume icy StreamUrl as artwork (its radio art comes from the
+item image or metadata-provider enrichment keyed on parsed artist/title; an italian HP chapter
+matches nothing). ICY titles = the win; ICY art = dead for MASS specifically (vlc et al still
+benefit). Radio Paradise shows per-track art in MASS via its PROVIDER polling a now-playing api ->
+concrete requirement for the tvh provider endgame + a /api/radio/{channel}/nowplaying json
+endpoint (~30 lines reusing GetNowPlayingForCurrentItem; also feeds HA wall-panel cards). PARKED
+at dakota's call.
+
+Dakota's question: squeezelite sync groups drift on radio but not files - anything server-side?
+Analysis: our mp3 endpoint is already the "good" format (direct continuous http mp3, fixed
+format), but it TRANSCODES FROM the internal hls session, inheriting a discontinuity at every item
+boundary and interrupt - the classic "jumps after a song change" symptom, which for a radio
+appliance happens every chapter. Plus no burst-on-connect (MA's radio path buffers only 64KB/0.1s)
+and kestrel response buffering adding jitter.
+
+Changes (RadioController):
+- -af aresample=async=1:first_pts=0 : fills discontinuity gaps with SILENCE and absorbs small
+  overlaps instead of emitting jumps the clients must each chase (should also help the reported
+  "few seconds of silence at delivery seams")
+- -readrate_initial_burst 8 (paired with -readrate 1.0): icecast-style burst-on-connect so the
+  player buffer starts full (ffmpeg >= 6.1; image is 7.1.1)
+- -write_xing 0 -id3v2_version 0 -flush_packets 1: bare continuous mp3 frames like an icecast
+  mount, no header frames, no muxer-side buffering
+- IHttpResponseBodyFeature.DisableBuffering() + FlushAsync after every write: unbuffered chunked
+  delivery, smoother pacing
+- (fixed -ar 44100 -ac 2 + CBR 192k were already in place - format constancy is prerequisite)
+
+HONEST LIMIT: these are principled, not measured - sandbox can't test group sync. Client-side
+factors from dakota's research (MA 2.9.0 -> 2.9.10, identical output codec + flow sample rate
+across members, wired ALSA leader, -a 150-300ms) likely dominate. If drift persists at BOUNDARIES
+specifically, that points back here; if it drifts continuously mid-chapter, it's client-side.
+
+LIVE TEST: play a chapter boundary and an interrupt on a sync group; compare rooms at the seam.
