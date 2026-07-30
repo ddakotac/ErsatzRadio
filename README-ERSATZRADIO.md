@@ -123,6 +123,17 @@ starts on the first listener, so interrupts, announcer, and ducks all function.
 Use this url in Music Assistant directly for rich metadata; keep the MPEG-TS
 url for TVHeadend.
 
+### Multi-room sync notes
+
+The direct radio endpoint is tuned for synchronized multi-room groups (Music
+Assistant + squeezelite and similar): fixed sample rate / channel layout / CBR
+for the life of the stream, gaps at internal boundaries filled with silence
+rather than passed through as jumps (`aresample=async`), an icecast-style
+burst-on-connect so player buffers start full, and unbuffered chunked delivery.
+Prefer this endpoint over the MPEG-TS URL for grouped players - TS/HLS
+discontinuities are the usual cause of a group drifting apart at item
+boundaries.
+
 ## Scheduling audiobooks and albums
 
 `Shuffle In Order` treats **books** (seasons with real titles) and **albums** as

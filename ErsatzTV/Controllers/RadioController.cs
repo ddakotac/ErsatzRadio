@@ -78,6 +78,10 @@ public class RadioController : ControllerBase
         bool wantsMetadata = Request.Headers.TryGetValue("Icy-MetaData", out var icyHeader) &&
                              icyHeader.ToString().Trim() == "1";
 
+        // kestrel response buffering adds jitter to a paced stream
+        HttpContext.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpResponseBodyFeature>()
+            ?.DisableBuffering();
+
         Response.StatusCode = 200;
         Response.ContentType = "audio/mpeg";
         Response.Headers["Cache-Control"] = "no-cache, no-store";
@@ -99,14 +103,30 @@ public class RadioController : ControllerBase
             UseShellExecute = false
         };
 
+        // sync-group friendliness (multi-room squeezelite groups are sensitive to
+        // gaps, format changes, and thin client buffers):
+        //   aresample=async=1  - the internal hls session emits a DISCONTINUITY at
+        //                        every item boundary and interrupt; this fills gaps
+        //                        with silence and absorbs small overlaps instead of
+        //                        letting them become jumps the client must chase
+        //   readrate_initial_burst - icecast-style burst-on-connect: send a few
+        //                        seconds as fast as possible so the player's buffer
+        //                        starts full, then pace at 1.0
+        //   fixed -ar/-ac/CBR  - never change sample rate, layout, or bitrate
+        //                        mid-stream (format changes desync groups)
+        //   write_xing/id3v2 off - bare mp3 frames, like an icecast mount
         foreach (string arg in new[]
                  {
                      "-nostdin", "-hide_banner", "-loglevel", "error", "-nostats",
                      "-fflags", "+genpts+discardcorrupt+igndts",
                      "-readrate", "1.0",
+                     "-readrate_initial_burst", "8",
                      "-i", internalUrl,
                      "-map", "0:a",
+                     "-af", "aresample=async=1:first_pts=0",
                      "-c:a", "libmp3lame", "-b:a", "192k", "-ar", "44100", "-ac", "2",
+                     "-write_xing", "0", "-id3v2_version", "0",
+                     "-flush_packets", "1",
                      "-f", "mp3", "pipe:1"
                  })
         {
@@ -159,6 +179,7 @@ public class RadioController : ControllerBase
                 if (!wantsMetadata)
                 {
                     await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                    await output.FlushAsync(cancellationToken);
                     continue;
                 }
 
@@ -193,6 +214,8 @@ public class RadioController : ControllerBase
                         await output.WriteAsync(metaBlock, cancellationToken);
                     }
                 }
+
+                await output.FlushAsync(cancellationToken);
             }
         }
         catch (OperationCanceledException)
