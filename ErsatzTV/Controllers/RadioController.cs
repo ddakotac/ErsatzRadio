@@ -109,22 +109,36 @@ public class RadioController : ControllerBase
         //                        every item boundary and interrupt; this fills gaps
         //                        with silence and absorbs small overlaps instead of
         //                        letting them become jumps the client must chase
-        //   readrate_initial_burst - icecast-style burst-on-connect: send a few
-        //                        seconds as fast as possible so the player's buffer
-        //                        starts full, then pace at 1.0
+        //   NO readrate cap    - an icecast-style server is paced by TCP
+        //                        backpressure, not an artificial realtime cap.
+        //                        With a cap, a client whose buffer drains can
+        //                        NEVER refill (we never send faster than it
+        //                        consumes), so it sits in a permanent underrun
+        //                        state - and squeezelite players report BUFFERING,
+        //                        which silently disables Music Assistant's sync
+        //                        correction for the entire group. Reading is
+        //                        naturally limited to 1x by the live hls source
+        //                        once the reader reaches the playlist edge.
+        //   live_start_index   - start ~40s behind the playlist edge so producer
+        //                        hiccups never starve the reader
+        //   threads 1          - one audio stream needs no thread pool (the ts
+        //                        wrapper does the same); saves ~10% of a core
+        //                        per listener
+        //   ar 48000           - matches the segmenter output, so no per-listener
+        //                        sample rate conversion
         //   fixed -ar/-ac/CBR  - never change sample rate, layout, or bitrate
         //                        mid-stream (format changes desync groups)
         //   write_xing/id3v2 off - bare mp3 frames, like an icecast mount
         foreach (string arg in new[]
                  {
                      "-nostdin", "-hide_banner", "-loglevel", "error", "-nostats",
+                     "-threads", "1",
                      "-fflags", "+genpts+discardcorrupt+igndts",
-                     "-readrate", "1.0",
-                     "-readrate_initial_burst", "8",
+                     "-live_start_index", "-10",
                      "-i", internalUrl,
                      "-map", "0:a",
                      "-af", "aresample=async=1:first_pts=0",
-                     "-c:a", "libmp3lame", "-b:a", "192k", "-ar", "44100", "-ac", "2",
+                     "-c:a", "libmp3lame", "-b:a", "192k", "-ar", "48000", "-ac", "2",
                      "-write_xing", "0", "-id3v2_version", "0",
                      "-flush_packets", "1",
                      "-f", "mp3", "pipe:1"
