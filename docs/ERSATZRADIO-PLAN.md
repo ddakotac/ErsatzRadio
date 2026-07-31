@@ -845,3 +845,47 @@ across members, wired ALSA leader, -a 150-300ms) likely dominate. If drift persi
 specifically, that points back here; if it drifts continuously mid-chapter, it's client-side.
 
 LIVE TEST: play a chapter boundary and an interrupt on a sync group; compare rooms at the seam.
+
+
+### Session 25 (2026-07-31): backpressure pacing - ROOT CAUSE of the sync-group failure
+COMPILE-VERIFIED (app 0 errors).
+
+DIAGNOSIS (via diagnostics added to dakota's patched MASS image, reading the real 2.9.10
+squeezelite provider source):
+
+_handle_sync begins with:
+    if sync_master.state != SlimPlayerState.PLAYING: return
+    if self.client.state   != SlimPlayerState.PLAYING: return
+
+Dakota's instrumented log shows the exact transition: while client_state=PLAYING the sync
+diagnostics fire and playpoints accumulate 1->4->6->8 normally; the moment client_state becomes
+BUFFERING (after a single audible starve), sync diagnostics stop PERMANENTLY while heartbeats
+continue and elapsed keeps advancing (29s -> 118s). A squeezelite player in BUFFERING state gets
+NO sync correction, ever - including the sync master.
+
+ROOT CAUSE (OURS, not MASS's): the radio endpoint paced with -readrate 1.0, i.e. exactly realtime,
+forever. Once a client's buffer drains below its threshold it can NEVER refill, because the server
+never delivers faster than the client consumes -> permanent underrun -> permanent BUFFERING ->
+sync correction disabled for the whole group. A real icecast server is paced by TCP BACKPRESSURE:
+it writes as fast as the socket accepts, the client's buffer stays full, and the socket throttles
+the server to the consumption rate. -readrate is for simulating live input from a FILE; it is
+wrong for a live server.
+
+This also explains every prior observation: the MASS low-latency patch RAISED the buffer threshold
+(making "never refills" far easier to hit, hence worse after the patch and worse again with more
+segments); announcements "fixed" it because a restart refills the buffer; the starve/spike
+oscillation in the throughput trace was the same pacing meeting a lagging producer.
+
+Fix (0032):
+- REMOVED -readrate 1.0 and -readrate_initial_burst: paced by tcp backpressure. Reading is
+  naturally limited to 1x by the live hls source once the reader reaches the playlist edge, and
+  a client that falls behind can now actually catch up.
+- -live_start_index -10: start ~40s behind the playlist edge (default -3 = 12s) so producer
+  hiccups never starve the reader. Pairs with the segmenter's initial segment count setting.
+- -threads 1: one audio stream needs no thread pool (the ts wrapper already does this). dakota
+  measured ~23 threads and ~10% of a core PER LISTENER.
+- -ar 48000: matches the segmenter output; removes a pointless per-listener resample.
+
+STILL OPEN: one ffmpeg per listener (the media transcode is shared, the mp3 encode is not).
+Fan-out - one encode per channel, N writers - is the durable fix, plus a possible /radio/{n}.aac
+endpoint using -c:a copy (no decode/encode at all, at the cost of losing aresample gap-filling).
