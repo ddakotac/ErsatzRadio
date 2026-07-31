@@ -889,3 +889,35 @@ Fix (0032):
 STILL OPEN: one ffmpeg per listener (the media transcode is shared, the mp3 encode is not).
 Fan-out - one encode per channel, N writers - is the durable fix, plus a possible /radio/{n}.aac
 endpoint using -c:a copy (no decode/encode at all, at the cost of losing aresample gap-filling).
+
+
+### Session 26 (2026-07-31): endpoint consolidation - formats, per-channel config, playlist truth
+COMPILE-VERIFIED (app + scanner 0 errors; MudBlazor analyzer rejects Dense on MudNumericField).
+
+CORRECTION to the endpoint matrix I gave dakota: TS and AAC have IDENTICAL timing behaviour (both
+are -c copy; neither touches samples), so "aac has discontinuities, ts doesn't" was wrong. The real
+axis is COPY vs RE-ENCODE. And AAC copy is HIGHER quality than the mp3 endpoint, since the segments
+are already 192k aac - mp3 adds a lossy generation for 10x the cpu. Producer-side gaps are also
+rarer than assumed: ETV pads every item with apad=whole_dur to its exact scheduled duration and
+continues the PTS timeline via output_ts_offset.
+
+Delivered:
+- /radio/{n}.aac - stream copy to ADTS (-c:a copy -f adts). ~1% of a core vs ~10%. ICY interleaving
+  is byte-level so it works identically for any codec.
+- /radio/{n} - format-agnostic url serving the channel's configured format
+- per-channel config elements (NO schema change, no upstream file edits): radio.{n}.format,
+  radio.{n}.mp3_quality (compression_level, default 7), radio.{n}.gap_fill (mp3 only - a copy
+  cannot run aresample)
+- Settings > Radio page: audio-only channels table with format/quality/gap-fill per channel, plus
+  the artwork base url (previously api-only)
+- CHANNEL PLAYLIST TRUTH: GetChannelPlaylistHandler now loads per-channel radio formats and
+  ChannelPlaylist emits /radio/{n}.{format} for AUDIO-ONLY channels instead of the ts url. Clients
+  get metadata-capable urls without guessing.
+- TS WRAPPER READRATE REMOVED (PipelineBuilderBase line ~171, the wrapper pipeline - NOT the concat
+  pipeline at ~119, which reads files in a loop and genuinely needs pacing). Same root cause as
+  0032: an artificial realtime cap means a downstream consumer that drains can never refill.
+  NOTE: this touches the path TVHeadend uses for ALL channels, TV included - the one change here
+  that is not radio-only.
+
+STILL OPEN: fan-out (one encode per channel shared by N listeners) - much less urgent now that aac
+copy is ~1%.
