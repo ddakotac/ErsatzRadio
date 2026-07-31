@@ -1,9 +1,11 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using ErsatzTV.Core.Interfaces.FFmpeg;
 using ErsatzTV.Core.Interfaces.Repositories;
 using ErsatzTV.Core.Interfaces.Streaming;
 using ErsatzTV.Core.Domain;
+using ErsatzTV.Core.Interrupts;
 using LanguageExt;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -49,7 +51,26 @@ public class RadioController : ControllerBase
     }
 
     [HttpGet("radio/{channelNumber}.mp3")]
+    public Task GetRadioStreamMp3(string channelNumber, CancellationToken cancellationToken) =>
+        StreamChannel(channelNumber, RadioFormat.Mp3, cancellationToken);
+
+    [HttpGet("radio/{channelNumber}.aac")]
+    public Task GetRadioStreamAac(string channelNumber, CancellationToken cancellationToken) =>
+        StreamChannel(channelNumber, RadioFormat.Aac, cancellationToken);
+
+    // format-agnostic url: serves whatever the channel is configured to use, so
+    // clients and playlists never have to guess
+    [HttpGet("radio/{channelNumber}")]
     public async Task GetRadioStream(string channelNumber, CancellationToken cancellationToken)
+    {
+        RadioFormat format = await ResolveFormat(channelNumber, cancellationToken);
+        await StreamChannel(channelNumber, format, cancellationToken);
+    }
+
+    private async Task StreamChannel(
+        string channelNumber,
+        RadioFormat format,
+        CancellationToken cancellationToken)
     {
         await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -83,7 +104,7 @@ public class RadioController : ControllerBase
             ?.DisableBuffering();
 
         Response.StatusCode = 200;
-        Response.ContentType = "audio/mpeg";
+        Response.ContentType = format == RadioFormat.Aac ? "audio/aac" : "audio/mpeg";
         Response.Headers["Cache-Control"] = "no-cache, no-store";
         Response.Headers["icy-name"] = channelName;
         Response.Headers["icy-genre"] = "Various";
@@ -129,20 +150,46 @@ public class RadioController : ControllerBase
         //   fixed -ar/-ac/CBR  - never change sample rate, layout, or bitrate
         //                        mid-stream (format changes desync groups)
         //   write_xing/id3v2 off - bare mp3 frames, like an icecast mount
-        foreach (string arg in new[]
-                 {
-                     "-nostdin", "-hide_banner", "-loglevel", "error", "-nostats",
-                     "-threads", "1",
-                     "-fflags", "+genpts+discardcorrupt+igndts",
-                     "-live_start_index", "-10",
-                     "-i", internalUrl,
-                     "-map", "0:a",
-                     "-af", "aresample=async=1:first_pts=0",
-                     "-c:a", "libmp3lame", "-b:a", "192k", "-ar", "48000", "-ac", "2",
-                     "-write_xing", "0", "-id3v2_version", "0",
-                     "-flush_packets", "1",
-                     "-f", "mp3", "pipe:1"
-                 })
+        var arguments = new List<string>
+        {
+            "-nostdin", "-hide_banner", "-loglevel", "error", "-nostats",
+            "-threads", "1",
+            "-fflags", "+genpts+discardcorrupt+igndts",
+            "-live_start_index", "-10",
+            "-i", internalUrl,
+            "-map", "0:a"
+        };
+
+        if (format == RadioFormat.Aac)
+        {
+            // copy the aac already inside the segments: no decode, no encode,
+            // original quality, ~1% of a core instead of ~10%
+            arguments.AddRange(["-c:a", "copy", "-f", "adts"]);
+        }
+        else
+        {
+            bool gapFill = await GetGapFill(channelNumber, cancellationToken);
+            if (gapFill)
+            {
+                arguments.AddRange(["-af", "aresample=async=1:first_pts=0"]);
+            }
+
+            int quality = await GetMp3Quality(channelNumber, cancellationToken);
+
+            arguments.AddRange(
+            [
+                "-c:a", "libmp3lame",
+                "-b:a", "192k",
+                "-compression_level", quality.ToString(CultureInfo.InvariantCulture),
+                "-ar", "48000", "-ac", "2",
+                "-write_xing", "0", "-id3v2_version", "0",
+                "-f", "mp3"
+            ]);
+        }
+
+        arguments.AddRange(["-flush_packets", "1", "pipe:1"]);
+
+        foreach (string arg in arguments)
         {
             startInfo.ArgumentList.Add(arg);
         }
@@ -151,9 +198,10 @@ public class RadioController : ControllerBase
         process.StartInfo = startInfo;
 
         _logger.LogInformation(
-            "Starting icy radio stream for channel {Channel} ({Name}); metadata={Metadata}",
+            "Starting icy radio stream for channel {Channel} ({Name}); format={Format} metadata={Metadata}",
             channelNumber,
             channelName,
+            format,
             wantsMetadata);
 
         try
@@ -256,6 +304,53 @@ public class RadioController : ControllerBase
 
             _logger.LogInformation("Icy radio stream for channel {Channel} closed", channelNumber);
         }
+    }
+
+    private async Task<RadioFormat> ResolveFormat(string channelNumber, CancellationToken cancellationToken)
+    {
+        Option<string> maybeFormat = await _configElementRepository.GetValue<string>(
+            ConfigElementKey.RadioFormat(channelNumber),
+            cancellationToken);
+
+        foreach (string value in maybeFormat)
+        {
+            if (string.Equals(value, "mp3", StringComparison.OrdinalIgnoreCase))
+            {
+                return RadioFormat.Mp3;
+            }
+        }
+
+        // aac (stream copy) is the default: cheapest, and preserves the original
+        // audio rather than transcoding it a second time
+        return RadioFormat.Aac;
+    }
+
+    private async Task<int> GetMp3Quality(string channelNumber, CancellationToken cancellationToken)
+    {
+        Option<int> maybeQuality = await _configElementRepository.GetValue<int>(
+            ConfigElementKey.RadioMp3Quality(channelNumber),
+            cancellationToken);
+
+        foreach (int quality in maybeQuality)
+        {
+            return Math.Clamp(quality, 0, 9);
+        }
+
+        return 7;
+    }
+
+    private async Task<bool> GetGapFill(string channelNumber, CancellationToken cancellationToken)
+    {
+        Option<bool> maybeGapFill = await _configElementRepository.GetValue<bool>(
+            ConfigElementKey.RadioGapFill(channelNumber),
+            cancellationToken);
+
+        foreach (bool gapFill in maybeGapFill)
+        {
+            return gapFill;
+        }
+
+        return true;
     }
 
     // GET/PUT /api/radio/settings - artworkBaseUrl override for the icy StreamUrl

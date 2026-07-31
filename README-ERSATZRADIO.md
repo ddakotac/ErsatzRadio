@@ -96,6 +96,32 @@ curl -X PUT http://host:8409/api/channels/1/announcer \
        "ttsEndpoint": "piper-main"}'
 ```
 
+## Endpoints: which one to use
+
+| endpoint | cost per listener | now-playing | timing | audio |
+|---|---|---|---|---|
+| `/radio/{n}` | follows the channel's configured format | ICY titles + art | | |
+| `/radio/{n}.aac` | ~1% of a core (stream copy) | ICY titles + art | passthrough | original, untouched |
+| `/radio/{n}.mp3` | ~10% of a core (transcode) | ICY titles + art | optional gap filling | re-encoded from the source |
+| `/iptv/channel/{n}.ts` | ~1% of a core (stream copy) | static service name only | passthrough | original, untouched |
+
+**AAC is the default** and is the right choice for most channels: it copies the
+audio already inside the channel's segments, so it costs a fraction of the CPU
+*and* avoids a second generation of lossy encoding.
+
+Choose **MP3** for a channel when a client can't handle AAC, or when you want
+`aresample` gap filling as insurance on a channel that has proven troublesome.
+MP3 quality is `-compression_level` (0 slowest/best, 9 fastest; 7 is a good
+default at 192k).
+
+Use the **MPEG-TS** url for TVHeadend ingestion and other tuner-style consumers -
+it carries no per-track metadata, so prefer a radio url for anything that can
+display now-playing information.
+
+Configure per channel at Settings > Radio. Audio-only channels advertise their
+configured radio url in the channel playlist (`/iptv/channels.m3u`), so clients
+do not have to guess.
+
 ## Direct radio streams (ICY / now-playing metadata)
 
 Every channel is also available as a plain internet-radio stream with live

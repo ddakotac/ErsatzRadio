@@ -168,7 +168,12 @@ public abstract class PipelineBuilderBase : IPipelineBuilder
             concatInputFile.AddOption(new DecoderAacLatm());
         }
 
-        concatInputFile.AddOption(new ReadrateInputOption(1.0));
+        // NO readrate on the wrapper: it reads the local hls segmenter, which is
+        // already paced by segment production. With an artificial realtime cap a
+        // downstream consumer whose buffer drains can never refill, because we
+        // never send faster than it consumes - it sits in permanent underrun.
+        // (The concat pipeline above is different: it reads files in a loop and
+        // genuinely needs pacing.)
 
         SetMetadataServiceProvider(ffmpegState, pipelineSteps);
         SetMetadataServiceName(ffmpegState, pipelineSteps);

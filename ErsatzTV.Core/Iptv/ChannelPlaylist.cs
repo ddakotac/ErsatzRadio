@@ -12,6 +12,7 @@ public class ChannelPlaylist
     private readonly string _host;
     private readonly string _scheme;
     private readonly string _userAgent;
+    private readonly Dictionary<string, string> _radioFormats;
 
     public ChannelPlaylist(
         string scheme,
@@ -19,8 +20,10 @@ public class ChannelPlaylist
         string baseUrl,
         List<Channel> channels,
         string userAgent,
-        string accessToken)
+        string accessToken,
+        Dictionary<string, string> radioFormats = null)
     {
+        _radioFormats = radioFormats ?? [];
         _scheme = scheme;
         _host = host;
         _baseUrl = baseUrl;
@@ -89,9 +92,20 @@ public class ChannelPlaylist
             sb.AppendLine(
                 CultureInfo.InvariantCulture,
                 $"#EXTINF:0 tvg-id=\"{ChannelIdentifier.FromNumber(channel.Number)}\" channel-id=\"{shortUniqueId}\" channel-number=\"{channel.Number}\" CUID=\"{shortUniqueId}\" tvg-chno=\"{channel.Number}\" tvg-name=\"{channel.Name}\" tvg-logo=\"{logo}\" group-title=\"{channel.Group}\" tvc-stream-vcodec=\"{vcodec}\" tvc-stream-acodec=\"{acodec}\", {channel.Name}");
-            sb.AppendLine(
-                CultureInfo.InvariantCulture,
-                $"{_scheme}://{_host}{_baseUrl}/iptv/channel/{channel.Number}.{format}");
+            // audio-only channels advertise their configured radio endpoint, so
+            // clients get icy now-playing metadata without having to guess a url
+            if (_radioFormats.TryGetValue(channel.Number, out string radioFormat))
+            {
+                sb.AppendLine(
+                    CultureInfo.InvariantCulture,
+                    $"{_scheme}://{_host}{_baseUrl}/radio/{channel.Number}.{radioFormat}{accessTokenUri}");
+            }
+            else
+            {
+                sb.AppendLine(
+                    CultureInfo.InvariantCulture,
+                    $"{_scheme}://{_host}{_baseUrl}/iptv/channel/{channel.Number}.{format}");
+            }
         }
 
         return sb.ToString();

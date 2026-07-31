@@ -1,0 +1,205 @@
+@page "/settings/radio"
+@using ErsatzTV.Application.Channels
+@using ErsatzTV.Core.Domain
+@using ErsatzTV.Core.Interfaces.Repositories
+@implements IDisposable
+@inject IMediator Mediator
+@inject IConfigElementRepository ConfigElementRepository
+@inject ISnackbar Snackbar
+
+<MudForm Style="max-height: 100%">
+    <div class="d-flex flex-column" style="height: 100vh; overflow-x: auto">
+        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="pt-8">
+            <MudText Typo="Typo.h5" Class="mb-2">Radio Endpoints</MudText>
+            <MudDivider Class="mb-6"/>
+            <MudText Typo="Typo.body2" Class="mb-4">
+                Audio-only channels are available as direct internet-radio streams with live
+                now-playing metadata (ICY). The configured format is what
+                <code>/radio/{number}</code> serves and what the channel playlist advertises;
+                <code>/radio/{number}.aac</code> and <code>/radio/{number}.mp3</code> always
+                serve their own format.
+            </MudText>
+
+            <MudTable Items="@_channels" Dense="true" Class="mb-6" Breakpoint="Breakpoint.Sm">
+                <HeaderContent>
+                    <MudTh>Channel</MudTh>
+                    <MudTh>Format</MudTh>
+                    <MudTh>MP3 Quality</MudTh>
+                    <MudTh>Gap Filling</MudTh>
+                    <MudTh>Url</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Channel">@($"{context.Number} - {context.Name}")</MudTd>
+                    <MudTd DataLabel="Format">
+                        <MudSelect T="string" Value="@GetFormat(context.Number)" Dense="true"
+                                   ValueChanged="@(v => SetFormat(context.Number, v))">
+                            <MudSelectItem T="string" Value="@("aac")">AAC (copy)</MudSelectItem>
+                            <MudSelectItem T="string" Value="@("mp3")">MP3 (transcode)</MudSelectItem>
+                        </MudSelect>
+                    </MudTd>
+                    <MudTd DataLabel="MP3 Quality">
+                        @if (GetFormat(context.Number) == "mp3")
+                        {
+                            <MudNumericField T="int" Value="@GetQuality(context.Number)" Min="0" Max="9"
+                                             Margin="Margin.Dense"
+                                             ValueChanged="@(v => SetQuality(context.Number, v))"/>
+                        }
+                        else
+                        {
+                            <MudText Typo="Typo.body2">-</MudText>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="Gap Filling">
+                        @if (GetFormat(context.Number) == "mp3")
+                        {
+                            <MudSwitch T="bool" Value="@GetGapFill(context.Number)" Color="Color.Primary"
+                                       ValueChanged="@(v => SetGapFill(context.Number, v))"/>
+                        }
+                        else
+                        {
+                            <MudText Typo="Typo.body2">n/a (copy)</MudText>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="Url">
+                        <code>/radio/@context.Number</code>
+                    </MudTd>
+                </RowTemplate>
+                <NoRecordsContent>
+                    <MudText Typo="Typo.body2">
+                        No audio-only channels. Set a channel's Song Video Mode to Audio Only to
+                        make it available as radio.
+                    </MudText>
+                </NoRecordsContent>
+            </MudTable>
+
+            <MudText Typo="Typo.body2" Class="mb-6">
+                <b>AAC (copy)</b> streams the audio already inside the channel's segments: about a
+                tenth of the CPU of transcoding, and no second generation of lossy encoding. It
+                cannot repair timing irregularities, because it does not touch the samples.<br/>
+                <b>MP3 (transcode)</b> costs meaningfully more CPU per listener and re-encodes the
+                audio, but supports the widest range of clients and can fill gaps at item
+                boundaries with silence. Quality 0 is slowest/best, 9 is fastest; 7 is a good
+                default at 192k.
+            </MudText>
+
+            <MudText Typo="Typo.h6" Class="mb-2">Artwork</MudText>
+            <MudDivider Class="mb-4"/>
+            <MudGrid Class="mb-12">
+                <MudItem xs="12" md="6">
+                    <MudTextField @bind-Value="_artworkBaseUrl" Label="Artwork base url (optional)"
+                                  Margin="Margin.Dense"
+                                  Placeholder="https://radio.example.com"
+                                  HelperText="Cover art urls sent in ICY metadata are built from this. Set it when your player's UI is https, or when ErsatzRadio sits behind a reverse proxy."/>
+                </MudItem>
+                <MudItem xs="12" md="3" Class="d-flex align-center">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.Save" OnClick="@SaveArtworkBaseUrl">
+                        Save
+                    </MudButton>
+                </MudItem>
+            </MudGrid>
+        </MudContainer>
+    </div>
+</MudForm>
+
+@code {
+    private CancellationTokenSource _cts;
+
+    private List<ChannelViewModel> _channels = [];
+    private readonly Dictionary<string, string> _formats = new();
+    private readonly Dictionary<string, int> _qualities = new();
+    private readonly Dictionary<string, bool> _gapFill = new();
+    private string _artworkBaseUrl;
+
+    public void Dispose()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _cts = new CancellationTokenSource();
+        CancellationToken token = _cts.Token;
+
+        List<ChannelViewModel> allChannels = await Mediator.Send(new GetAllChannels(), token);
+        _channels = allChannels
+            .Filter(c => c.SongVideoMode == ChannelSongVideoMode.AudioOnly)
+            .OrderBy(c => c.Number)
+            .ToList();
+
+        foreach (ChannelViewModel channel in _channels)
+        {
+            Option<string> maybeFormat = await ConfigElementRepository.GetValue<string>(
+                ConfigElementKey.RadioFormat(channel.Number), token);
+            _formats[channel.Number] = maybeFormat
+                .Filter(f => string.Equals(f, "mp3", StringComparison.OrdinalIgnoreCase))
+                .Map(_ => "mp3")
+                .IfNone("aac");
+
+            Option<int> maybeQuality = await ConfigElementRepository.GetValue<int>(
+                ConfigElementKey.RadioMp3Quality(channel.Number), token);
+            _qualities[channel.Number] = maybeQuality.IfNone(7);
+
+            Option<bool> maybeGapFill = await ConfigElementRepository.GetValue<bool>(
+                ConfigElementKey.RadioGapFill(channel.Number), token);
+            _gapFill[channel.Number] = maybeGapFill.IfNone(true);
+        }
+
+        Option<string> maybeBaseUrl = await ConfigElementRepository.GetValue<string>(
+            ConfigElementKey.RadioArtworkBaseUrl, token);
+        _artworkBaseUrl = maybeBaseUrl.IfNone(string.Empty);
+    }
+
+    private string GetFormat(string channelNumber) =>
+        _formats.TryGetValue(channelNumber, out string format) ? format : "aac";
+
+    private int GetQuality(string channelNumber) =>
+        _qualities.TryGetValue(channelNumber, out int quality) ? quality : 7;
+
+    private bool GetGapFill(string channelNumber) =>
+        !_gapFill.TryGetValue(channelNumber, out bool gapFill) || gapFill;
+
+    private async Task SetFormat(string channelNumber, string format)
+    {
+        _formats[channelNumber] = format;
+        await ConfigElementRepository.Upsert(
+            ConfigElementKey.RadioFormat(channelNumber), format, CancellationToken.None);
+        Snackbar.Add($"Channel {channelNumber} radio format: {format}", Severity.Success);
+    }
+
+    private async Task SetQuality(string channelNumber, int quality)
+    {
+        int clamped = Math.Clamp(quality, 0, 9);
+        _qualities[channelNumber] = clamped;
+        await ConfigElementRepository.Upsert(
+            ConfigElementKey.RadioMp3Quality(channelNumber), clamped, CancellationToken.None);
+    }
+
+    private async Task SetGapFill(string channelNumber, bool gapFill)
+    {
+        _gapFill[channelNumber] = gapFill;
+        await ConfigElementRepository.Upsert(
+            ConfigElementKey.RadioGapFill(channelNumber), gapFill, CancellationToken.None);
+    }
+
+    private async Task SaveArtworkBaseUrl()
+    {
+        string url = (_artworkBaseUrl ?? string.Empty).Trim();
+
+        if (!string.IsNullOrWhiteSpace(url) &&
+            !(Uri.TryCreate(url, UriKind.Absolute, out Uri parsed) &&
+              (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps)))
+        {
+            Snackbar.Add("Artwork base url must be an absolute http(s) url", Severity.Warning);
+            return;
+        }
+
+        await ConfigElementRepository.Upsert(
+            ConfigElementKey.RadioArtworkBaseUrl, url, CancellationToken.None);
+        Snackbar.Add("Saved artwork base url", Severity.Success);
+    }
+
+}

@@ -23,6 +23,9 @@ public class ConfigElementKey
     public static ConfigElementKey RssFeeds => new("rssfeeds.list");
     public static ConfigElementKey RssFeedWatermark(string feedName) => new($"rssfeeds.watermark.{feedName}");
     public static ConfigElementKey RadioArtworkBaseUrl => new("radio.artwork_base_url");
+    public static ConfigElementKey RadioFormat(string channelNumber) => new($"radio.{channelNumber}.format");
+    public static ConfigElementKey RadioMp3Quality(string channelNumber) => new($"radio.{channelNumber}.mp3_quality");
+    public static ConfigElementKey RadioGapFill(string channelNumber) => new($"radio.{channelNumber}.gap_fill");
     public static ConfigElementKey AnnouncerEnabled(string channelNumber) => new($"announcer.{channelNumber}.enabled");
     public static ConfigElementKey AnnouncerTemplate(string channelNumber) => new($"announcer.{channelNumber}.template");
     public static ConfigElementKey AnnouncerStyle(string channelNumber) => new($"announcer.{channelNumber}.style");
