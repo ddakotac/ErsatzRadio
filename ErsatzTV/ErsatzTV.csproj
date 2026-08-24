@@ -53,7 +53,7 @@
           <PrivateAssets>all</PrivateAssets>
           <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
-        <PackageReference Include="MudBlazor" Version="8.15.0" />
+        <PackageReference Include="MudBlazor" Version="9.9.0" />
         <PackageReference Include="NaturalSort.Extension" Version="4.4.1" />
         <PackageReference Include="Refit.HttpClientFactory" Version="9.0.2" />
         <PackageReference Include="Scalar.AspNetCore" Version="2.12.32" />
